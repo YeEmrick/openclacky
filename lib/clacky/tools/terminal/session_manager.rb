@@ -43,6 +43,7 @@ module Clacky
           :read_offset,     # Integer, bytes already returned by previous read calls
           :mutex,           # per-session mutex for PTY writes
           :resource_group,   # Optional cgroup for task limits and OOM attribution
+          :script_paths,    # Internal script paths for cleanup and output masking
           :shell_name,      # "zsh" | "bash" | "sh" — informs marker syntax & rc reload
           keyword_init: true
         )
@@ -77,6 +78,7 @@ module Clacky
                 read_offset: 0,
                 mutex: Mutex.new,
                 resource_group: resource_group,
+                script_paths: [],
                 shell_name: shell_name
               )
               @sessions[session.id] = session
@@ -116,7 +118,21 @@ module Clacky
           # Forget a session (after it has been killed/exited).  Does NOT kill
           # the process — callers should kill first.
           def forget(id)
-            @mutex.synchronize { @sessions.delete(id) }
+            session = @mutex.synchronize { @sessions.delete(id) }
+            cleanup_scripts(session) if session
+          end
+
+          # Cleanup must never replace the command's result with an unlink error.
+          def cleanup_scripts(session)
+            # The reader may clean up before buffered output is packaged.
+            # Preserve paths so error messages can still mask internal filenames.
+            Array(session.script_paths).each do |path|
+              begin
+                File.unlink(path)
+              rescue SystemCallError
+                # Best effort; retain the path for a later cleanup attempt.
+              end
+            end
           end
 
           # Refresh status of one session in-place (mutex-held).
@@ -188,6 +204,7 @@ module Clacky
               s.log_io&.close rescue nil
               s.writer&.close rescue nil
               s.reader&.close rescue nil
+              cleanup_scripts(s)
             end
           end
 
