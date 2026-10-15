@@ -391,11 +391,15 @@ module Clacky
       end
 
       SCRIPT_DIR = "/tmp/.clacky"
+      private def prepare_execution_command(session, command)
+        return command unless multiline_command?(command)
+
+        prepare_multiline_command(session, command)
+      end
 
       # Keep script contents out of the interactive PTY input parser.
-      private def prepare_execution_command(session, command)
+      private def prepare_multiline_command(session, command)
         session.script_paths.delete_if { |path| !File.exist?(path) }
-        return command unless multiline_command?(command)
 
         script_dir = File.join(SCRIPT_DIR, session.id.to_s)
         [SCRIPT_DIR, script_dir].each do |path|
@@ -419,7 +423,7 @@ module Clacky
 
       private def hide_script_paths(session, output)
         Array(session.script_paths).reduce(output) do |text, path|
-          text.gsub(/#{Regexp.escape(path)}: ?/, "").gsub(path, "<terminal-script>")
+          text.gsub(/#{Regexp.escape(path)}(?:: ?)?/, "")
         end
       end
 
@@ -1077,8 +1081,8 @@ module Clacky
         # non-WSL hosts (and on WSL when not invoking Windows binaries)
         # keep their PTY stdin and continue to behave as before.
         stdin_redirect = exe_needs_stdin_isolation?(command) ? " </dev/null" : ""
-        # Check stdin against the original command before replacing it with a script invocation.
-        # Internal bookkeeping commands must update the current shell directly.
+        # Inspect the original command before replacing multiline input with a script.
+        # Internal shell setup must execute inline to update the session itself.
         command = prepare_execution_command(session, command) if with_hooks
         line   = %Q|#{hooks_line}{ #{command}\n}#{stdin_redirect}; __clacky_ec=$?; printf "\n__CLACKY_DONE_#{token}_%s__\n" "$__clacky_ec"\n|
         session.mutex.synchronize { session.writer.write(line) }

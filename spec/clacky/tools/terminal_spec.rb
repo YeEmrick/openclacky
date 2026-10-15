@@ -171,6 +171,9 @@ RSpec.describe Clacky::Tools::Terminal do
         .to eq("bash: line 2: syntax error")
       expect(tool.send(:hide_script_paths, session, "#{path}:3: unmatched quote"))
         .to eq("3: unmatched quote")
+      expect(tool.send(:hide_script_paths, session, path)).to eq("")
+      expect(tool.send(:hide_script_paths, session, "failed in #{path} while running"))
+        .to eq("failed in  while running")
     end
 
     it "removes the script after a shell syntax error" do
@@ -195,9 +198,88 @@ RSpec.describe Clacky::Tools::Terminal do
         file
       end
       result = tool.execute(command: "echo first\necho second")
-      expect(result[:error]).to include("test write failure")
+      expect(result[:multiline_blocked]).to be_nil
+      expect(result[:error]).to include("IOError: test write failure")
       expect(paths.size).to eq(1)
       expect(paths.any? { |path| File.exist?(path) }).to be(false)
+    end
+
+    it "does not enter multiline preparation for single-line commands" do
+      expect(tool).not_to receive(:prepare_multiline_command)
+      expect(tool.execute(command: "printf single")[:output]).to eq("single")
+      expect(tool.execute(command: "false")[:exit_code]).to eq(1)
+    end
+
+    it "checks original multiline input before applying stdin isolation" do
+      command = "read answer\nprintf 'read=%s' \"$?\""
+      allow(tool).to receive(:exe_needs_stdin_isolation?).and_call_original
+      allow(tool).to receive(:exe_needs_stdin_isolation?).with(command).and_return(true)
+      result = tool.execute(command: command, timeout: 2)
+      expect(result[:exit_code]).to eq(0)
+      expect(result[:output]).to eq("read=1")
+      expect(result[:session_id]).to be_nil
+    end
+
+    it "prepares multiline scripts before using the shared execution flow" do
+      expect(tool).to receive(:prepare_multiline_command).and_call_original
+      result = tool.execute(command: "printf first\nprintf second")
+      expect(result[:exit_code]).to eq(0)
+      expect(result[:output]).to eq("firstsecond")
+    end
+
+    it "returns the original error when the temporary script cannot be created" do
+      allow(Tempfile).to receive(:create).and_raise(Errno::ENOSPC)
+      result = tool.execute(command: "echo first\necho second")
+      expect(result[:multiline_blocked]).to be_nil
+      expect(result[:error]).to include("Errno::ENOSPC")
+      expect(result[:session_id]).to be_nil
+      expect(tool.execute(command: "printf alive")[:output]).to eq("alive")
+    end
+
+    it "returns the original error when the private script directory cannot be prepared" do
+      allow(FileUtils).to receive(:mkdir_p).and_call_original
+      allow(FileUtils).to receive(:mkdir_p).with(described_class::SCRIPT_DIR, mode: 0700)
+        .and_raise(Errno::EACCES)
+      result = tool.execute(command: "echo first\necho second")
+      expect(result[:multiline_blocked]).to be_nil
+      expect(result[:error]).to include("Errno::EACCES")
+      expect(tool.execute(command: "printf alive")[:output]).to eq("alive")
+    end
+
+    it "returns the original error when the script directory permissions are invalid" do
+      allow(File).to receive(:lstat).and_call_original
+      allow(File).to receive(:lstat).with(described_class::SCRIPT_DIR)
+        .and_return(double(directory?: true, uid: Process.uid, mode: 0777))
+      result = tool.execute(command: "echo first\necho second")
+      expect(result[:multiline_blocked]).to be_nil
+      expect(result[:error]).to include("IOError", "must be a private directory")
+    end
+
+    it "returns the original error and removes the script when closing it fails" do
+      paths = []
+      allow(Tempfile).to receive(:create).and_wrap_original do |original, *args|
+        file = original.call(*args)
+        paths << file.path
+        allow(file).to receive(:close).and_wrap_original do |close|
+          close.call
+          raise IOError, "test close failure"
+        end
+        file
+      end
+      result = tool.execute(command: "echo first\necho second")
+      expect(result[:multiline_blocked]).to be_nil
+      expect(result[:error]).to include("IOError: test close failure")
+      expect(paths.size).to eq(1)
+      expect(paths.any? { |path| File.exist?(path) }).to be(false)
+    end
+
+    it "preserves script execution errors" do
+      result = tool.execute(command: "echo first\nexit 7")
+      expect(result[:exit_code]).to eq(7)
+      expect(result[:multiline_blocked]).to be_nil
+      result = tool.execute(command: "if true; then\necho unfinished")
+      expect(result[:exit_code]).not_to eq(0)
+      expect(result[:multiline_blocked]).to be_nil
     end
 
     it "keeps the command result when script deletion fails" do
