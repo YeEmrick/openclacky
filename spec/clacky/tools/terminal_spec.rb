@@ -206,7 +206,8 @@ RSpec.describe Clacky::Tools::Terminal do
 
     it "does not enter multiline preparation for single-line commands" do
       expect(tool).not_to receive(:prepare_multiline_command)
-      expect(tool.execute(command: "printf single")[:output]).to eq("single")
+      # Linux PTYs can leave leading blank lines from shell setup.
+      expect(tool.execute(command: "printf single")[:output].sub(/\A\n+/, "")).to eq("single")
       expect(tool.execute(command: "false")[:exit_code]).to eq(1)
     end
 
@@ -216,7 +217,7 @@ RSpec.describe Clacky::Tools::Terminal do
       allow(tool).to receive(:exe_needs_stdin_isolation?).with(command).and_return(true)
       result = tool.execute(command: command, timeout: 2)
       expect(result[:exit_code]).to eq(0)
-      expect(result[:output]).to eq("read=1")
+      expect(result[:output].sub(/\A\n+/, "")).to eq("read=1")
       expect(result[:session_id]).to be_nil
     end
 
@@ -224,7 +225,7 @@ RSpec.describe Clacky::Tools::Terminal do
       expect(tool).to receive(:prepare_multiline_command).and_call_original
       result = tool.execute(command: "printf first\nprintf second")
       expect(result[:exit_code]).to eq(0)
-      expect(result[:output]).to eq("firstsecond")
+      expect(result[:output].sub(/\A\n+/, "")).to eq("firstsecond")
     end
 
     it "returns the original error when the temporary script cannot be created" do
@@ -233,7 +234,7 @@ RSpec.describe Clacky::Tools::Terminal do
       expect(result[:multiline_blocked]).to be_nil
       expect(result[:error]).to include("Errno::ENOSPC")
       expect(result[:session_id]).to be_nil
-      expect(tool.execute(command: "printf alive")[:output]).to eq("alive")
+      expect(tool.execute(command: "printf alive")[:output].sub(/\A\n+/, "")).to eq("alive")
     end
 
     it "returns the original error when the private script directory cannot be prepared" do
@@ -243,7 +244,7 @@ RSpec.describe Clacky::Tools::Terminal do
       result = tool.execute(command: "echo first\necho second")
       expect(result[:multiline_blocked]).to be_nil
       expect(result[:error]).to include("Errno::EACCES")
-      expect(tool.execute(command: "printf alive")[:output]).to eq("alive")
+      expect(tool.execute(command: "printf alive")[:output].sub(/\A\n+/, "")).to eq("alive")
     end
 
     it "returns the original error when the script directory permissions are invalid" do
@@ -306,7 +307,7 @@ RSpec.describe Clacky::Tools::Terminal do
       SH
       result = tool.execute(command: command)
       expect(result[:exit_code]).to eq(0)
-      expect(result[:output]).to eq(%q{中文 'single' "double" \n $HOME $(echo untouched)})
+      expect(result[:output].sub(/\A\n+/, "")).to eq(%q{中文 'single' "double" \n $HOME $(echo untouched)})
     end
 
     it "returns an error for incomplete multiline syntax without blocking the shell" do
