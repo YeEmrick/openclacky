@@ -149,6 +149,30 @@ RSpec.describe "replay_history chunk MD expansion" do
       expect(rounds.first[:user_msg][:created_at]).to be < Time.parse(archived_at).to_f
     end
 
+    it "restores assistant created_at from the chunk marker when present" do
+      original_ts = 1_787_540_014.9316192
+      path = File.join(sessions_dir, "chunk-1.md")
+      File.write(path, chunk_md(
+        user_content: "Q1",
+        assistant_content: "_Created at: #{original_ts}_\n\nAnswer from archive"
+      ))
+
+      rounds = build_agent([]).send(:parse_chunk_md_to_rounds, path)
+
+      expect(rounds.first[:events].first[:created_at]).to eq(original_ts)
+      expect(rounds.first[:events].first[:content]).to eq("Answer from archive")
+    end
+
+    it "keeps a non-numeric created_at lookalike as assistant text" do
+      path = File.join(sessions_dir, "chunk-1.md")
+      File.write(path, chunk_md(user_content: "Q1", assistant_content: "Report\n_Created at: next Monday_"))
+
+      event = build_agent([]).send(:parse_chunk_md_to_rounds, path).first[:events].first
+
+      expect(event[:created_at]).to be_nil
+      expect(event[:content]).to eq("Report\n_Created at: next Monday_")
+    end
+
     it "returns empty array for missing file" do
       agent = build_agent([])
       rounds = agent.send(:parse_chunk_md_to_rounds, "/nonexistent/chunk.md")

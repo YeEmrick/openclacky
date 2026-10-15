@@ -641,6 +641,7 @@ module Clacky
               lines << "## Assistant"
             end
             lines << ""
+            append_created_at_line(lines, msg)
             # Include tool calls summary if present
             # Format: "_Tool calls: name | {args_json}_" so replay can restore args for WebUI display.
             if msg[:tool_calls]&.any?
@@ -730,6 +731,13 @@ module Clacky
         return if files.empty?
 
         lines << "_Display files: #{files.to_json}_"
+        lines << ""
+      end
+
+      def append_created_at_line(lines, msg)
+        return unless msg[:created_at].is_a?(Numeric)
+
+        lines << "_Created at: #{msg[:created_at]}_"
         lines << ""
       end
 

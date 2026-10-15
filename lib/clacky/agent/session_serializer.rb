@@ -563,12 +563,15 @@ module Clacky
               #   Old: "_Tool calls: name1, name2_"  (backward compat)
               remaining_lines = []
               pending_tool_entries = []  # [{name:, args:}]
+              created_at = nil
 
               text.each_line do |line|
                 stripped = line.strip
                 if (m = stripped.match(/\A_Tool calls?:\s*(.+?)_?\z/i))
                   raw = m[1]
                   pending_tool_entries.concat(parse_tool_calls_line(raw))
+                elsif (m = stripped.match(/\A_Created at: (\d+(?:\.\d+)?)_\z/))
+                  created_at = m[1].to_f
                 else
                   remaining_lines << line
                 end
@@ -577,7 +580,7 @@ module Clacky
               # Flush any plain text
               plain_text = remaining_lines.join.strip
               unless plain_text.empty?
-                current_round[:events] << { role: "assistant", content: plain_text, interim: !pending_tool_entries.empty? }
+                current_round[:events] << { role: "assistant", content: plain_text, interim: !pending_tool_entries.empty?, created_at: created_at }
               end
 
               # Emit one synthetic tool_calls message per detected tool
