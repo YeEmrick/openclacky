@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require "pty"
+require "tempfile"
+require "shellwords"
 require "securerandom"
 require "fileutils"
 require_relative "base"
@@ -72,9 +74,6 @@ module Clacky
           {command, background:true}      long-running; returns session_id after ~2s if alive
           {session_id, input:"pw\n"}      reply to prompt / poll (input:"")
           {session_id, kill:true}         stop
-
-        Single-line only. For multi-line scripts (heredoc, loops, multi-statement blocks)
-        write a file first, then run it: write(path:"/tmp/run.sh", content:...) → terminal(command:"bash /tmp/run.sh").
 
         Response: exit_code = done; session_id = running (state: waiting/background/timeout).
         If output exceeds the limit, `output` is truncated and `full_output_file` points
@@ -244,17 +243,6 @@ module Clacky
 
         # Start a new command
         if command && !command.to_s.strip.empty?
-          if multiline_command?(command)
-            return {
-              error: "Multi-line commands are unreliable in our PTY shell " \
-                     "(heredocs / unclosed quotes / multi-line blocks can hang the session).",
-              hint: "Write the script to a file first, then execute it. " \
-                    "Example: 1) write(path: \"/tmp/run.sh\", content: \"...\")  " \
-                    "2) terminal(command: \"bash /tmp/run.sh\")",
-              multiline_blocked: true
-            }
-          end
-
           return do_start(command.to_s, cwd: cwd, env: env, timeout: timeout,
                           idle_ms: idle_ms, background: background ? true : false,
                           on_output: on_output)
@@ -402,6 +390,43 @@ module Clacky
         )
       end
 
+      SCRIPT_DIR = "/tmp/.clacky"
+      private def prepare_execution_command(session, command)
+        return command unless multiline_command?(command)
+
+        prepare_multiline_command(session, command)
+      end
+
+      # Keep script contents out of the interactive PTY input parser.
+      private def prepare_multiline_command(session, command)
+        session.script_paths.delete_if { |path| !File.exist?(path) }
+
+        script_dir = File.join(SCRIPT_DIR, session.id.to_s)
+        [SCRIPT_DIR, script_dir].each do |path|
+          FileUtils.mkdir_p(path, mode: 0700)
+          directory = File.lstat(path)
+          unless directory.directory? && directory.uid == Process.uid && (directory.mode & 0077).zero?
+            raise IOError, "#{path} must be a private directory owned by the current user"
+          end
+        end
+
+        file = Tempfile.create(["script-", ".sh"], script_dir)
+        session.script_paths << file.path
+        begin
+          file.write(command)
+          file.write("\n") unless command.end_with?("\n")
+        ensure
+          file.close
+        end
+        "( . #{Shellwords.escape(file.path)} )"
+      end
+
+      private def hide_script_paths(session, output)
+        Array(session.script_paths).reduce(output) do |text, path|
+          text.gsub(/#{Regexp.escape(path)}(?:: ?)?/, "")
+        end
+      end
+
       # ---------------------------------------------------------------------
       # 2) Continue / poll an existing session
       # ---------------------------------------------------------------------
@@ -480,6 +505,7 @@ module Clacky
         # whole 4 KB budget. MUST run before overflow spill so the file
         # on disk also has the long lines shortened (otherwise grep-ing
         # the spill file returns thousand-char lines the LLM chokes on).
+        cleaned = hide_script_paths(session, cleaned)
         cleaned = truncate_long_lines(cleaned)
         truncated = false
         overflow_file = nil
@@ -516,6 +542,7 @@ module Clacky
 
         case state
         when :matched, :eof
+          SessionManager.cleanup_scripts(session)
           exit_code = code || session.exit_code
           if persistent && state == :matched && session_healthy?(session)
             # Command finished cleanly — return the shell to the pool so
@@ -1054,8 +1081,14 @@ module Clacky
         # non-WSL hosts (and on WSL when not invoking Windows binaries)
         # keep their PTY stdin and continue to behave as before.
         stdin_redirect = exe_needs_stdin_isolation?(command) ? " </dev/null" : ""
+        # Inspect the original command before replacing multiline input with a script.
+        # Internal shell setup must execute inline to update the session itself.
+        command = prepare_execution_command(session, command) if with_hooks
         line   = %Q|#{hooks_line}{ #{command}\n}#{stdin_redirect}; __clacky_ec=$?; printf "\n__CLACKY_DONE_#{token}_%s__\n" "$__clacky_ec"\n|
         session.mutex.synchronize { session.writer.write(line) }
+      rescue StandardError
+        cleanup_session(session)
+        raise
       end
 
       # True when the command should run with stdin redirected from
@@ -1292,7 +1325,7 @@ module Clacky
           # doesn't produce a wall of whitespace in the streaming UI.
           cleaned = cleaned.gsub(/\n{3,}/, "\n\n")
           cleaned = cleaned.lstrip if cleaned.match?(/\A\n+\z/)
-          on_output.call(cleaned) unless cleaned.empty? || cleaned.match?(/\A\s*\z/)
+          on_output.call(hide_script_paths(session, cleaned)) unless cleaned.empty? || cleaned.match?(/\A\s*\z/)
         rescue StandardError
           # Streaming is best-effort — never let a UI bug abort the command.
         end
@@ -1394,10 +1427,7 @@ module Clacky
 
       # True when `command` spans multiple lines. Trailing newlines are
       # ignored — a single-line command terminated with "\n" is still
-      # single-line. Multi-line commands frequently hang the persistent
-      # PTY shell (incomplete heredoc, unclosed quote, multi-line block
-      # without closer) — the agent should write a script file and
-      # invoke it instead.
+      # single-line. Multi-line input is sourced in a subshell.
       private def multiline_command?(command)
         return false if command.nil?
         command.to_s.sub(/\n+\z/, "").include?("\n")
