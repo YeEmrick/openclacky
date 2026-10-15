@@ -56,8 +56,15 @@ module Clacky
         retries = 0
         # Per-call tier attribution for auto routing: each retryable failure is
         # charged to the tier the gateway actually routed that call to (echoed
-        # in X-Clacky-Routed-Tier). Failures without a tier (network layer,
-        # timeouts — the gateway never answered) are not attributed to either.
+        # in X-Clacky-Routed-Tier). A tier-less failure is charged to the floor
+        # when the call went out as "auto": the gateway only stamps the tier
+        # header after it has routed the call, so a missing tier means the
+        # failure happened before routing (HTML error page, truncated body,
+        # rejection at the auth layer) — and the gateway defaults to the floor
+        # lane in exactly that case. Leaving it uncharged would keep
+        # agent_upstream_fails at 0 and pin the task to a dead floor lane until
+        # its retry budget ran out. Non-auto calls and unknown tier values are
+        # attributed to neither lane.
         floor_fails = 0
         upgrade_fails = 0
 
@@ -257,6 +264,12 @@ module Clacky
           case e.routed_tier
           when "floor"   then floor_fails += 1
           when "upgrade" then upgrade_fails += 1
+          when nil       then floor_fails += 1 if api_call_model == "auto"
+          else
+            if defined?(Clacky::Logger)
+              Clacky::Logger.warn("llm_caller.unknown_routed_tier",
+                tier: e.routed_tier, model: api_call_model)
+            end
           end
 
           # Probing failure: primary still down — renew cooling-off and retry with fallback.

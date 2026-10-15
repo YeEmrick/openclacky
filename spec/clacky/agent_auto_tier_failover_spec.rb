@@ -6,8 +6,9 @@ require "spec_helper"
 # fails, the retry must report agent_upgrade_fails so the gateway falls back
 # to the floor — task keeps running instead of burning the whole retry
 # budget on a dead upgrade lane. Floor failures keep feeding the existing
-# agent_upstream_fails signal; failures without a tier (network layer) are
-# not attributed to either lane.
+# agent_upstream_fails signal. A tier-less failure on an "auto" call is
+# charged to the floor too, since the gateway only stamps the tier once it
+# has routed the call; non-auto calls without a tier charge neither lane.
 RSpec.describe Clacky::Agent, "auto tier failover" do
   let(:config) do
     Clacky::AgentConfig.new(
@@ -102,13 +103,46 @@ RSpec.describe Clacky::Agent, "auto tier failover" do
     expect(agent.instance_variable_get(:@task_upgrade_fails).to_i).to eq(0)
   end
 
-  it "unattributed failure charges neither lane" do
+  it "non-auto model without a tier charges neither lane" do
+    allow(agent).to receive(:current_model).and_return("deepseek-v4-pro")
     sent = []
     call_count = 0
     allow(client).to receive(:send_messages_with_tools) do |_msgs, model:, **opts|
       call_count += 1
       sent << opts
-      call_count == 1 ? raise(Clacky::RetryableError.new("Network failed")) : mock_api_response
+      call_count == 1 ? raise(tier_error(nil)) : mock_api_response
+    end
+
+    agent.send(:call_llm)
+    expect(sent[1][:agent_upstream_fails].to_i).to eq(0)
+    expect(sent[1][:agent_upgrade_fails].to_i).to eq(0)
+    expect(agent.instance_variable_get(:@task_upstream_fails).to_i).to eq(0)
+    expect(agent.instance_variable_get(:@task_upgrade_fails).to_i).to eq(0)
+  end
+
+  it "auto upstream failure without a tier charges the floor lane" do
+    sent = []
+    call_count = 0
+    allow(client).to receive(:send_messages_with_tools) do |_msgs, model:, **opts|
+      call_count += 1
+      sent << opts
+      call_count == 1 ? raise(tier_error(nil)) : mock_api_response
+    end
+
+    agent.send(:call_llm)
+    expect(sent[1][:agent_upstream_fails]).to eq(1)
+    expect(sent[1][:agent_upgrade_fails].to_i).to eq(0)
+    expect(agent.instance_variable_get(:@task_upstream_fails)).to eq(1)
+    expect(agent.instance_variable_get(:@task_upgrade_fails).to_i).to eq(0)
+  end
+
+  it "unknown tier value charges neither lane" do
+    sent = []
+    call_count = 0
+    allow(client).to receive(:send_messages_with_tools) do |_msgs, model:, **opts|
+      call_count += 1
+      sent << opts
+      call_count == 1 ? raise(tier_error("middle")) : mock_api_response
     end
 
     agent.send(:call_llm)
