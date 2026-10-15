@@ -4,6 +4,52 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
+## [1.5.20] - 2026-10-15
+
+### Added
+- Add a data management page with session archiving and a recycle bin
+- Add a tab context menu and reopen tabs after a reload
+- Preview audio and video files in the workspace (#634)
+- Preview pending image attachments before sending (#629)
+- Zoom and pan in the viewer's image preview
+- Move the todo list into a session bar popover (#619)
+- Add opt-in per-task feedback countdowns (#633 - @no7dw)
+- Name a session automatically from its first message
+- Show the active session title in the top header
+- Show the QQ bind QR inline with expiry refresh and a sticky success state (#621)
+- Add the oc-grok-4.7, abs-claude-haiku-5-5 and or-gemini-4-argon aliases
+
+### Improved
+- Lead model picker rows with their provider
+- Retune the model series discounts and say where they come from
+- Point the openclacky lite tier at claude-haiku-5-5
+- Soften the segmented control hover
+- Tidy the top-up label and the model row spacing
+- Put the model remark under the API key and align it left
+
+### Fixed
+- Pair replayed tool results with their own calls so a refreshed session no longer strands them in the wrong tool item (#640)
+- Keep the assistant timestamp when a session is archived and replayed from chunk history (#639 - @BoyYangzai)
+- Stop dropping attachment messages while a task is being processed (#628)
+- Handle a missing workspace path in the directory picker (#623)
+- Restore the settings tab after switching sessions (#626)
+- Send model picker actions to the right settings tab (#624)
+- Stop session action buttons from squeezing the session title (#625)
+- Improve the mobile billing chart usability (#627)
+- Stop truncating the navigator preview too early (#632)
+- Refresh the Files tree after restoring a task from the timeline (#638)
+- Checkpoint the latest task after a session reload (#637)
+- Localize screenshot upload errors and retry after binding a device (#636)
+- Persist run errors in the session history
+- Stop pinning an auto-routed task to a dead lane when a failure carries no tier
+- Reword network failures and link them to the key console
+- Align the sidebar toggle buttons and unify their icons at 16px (#622)
+- Fade the collapsed aside opener icon
+
+### More
+- Retire gemini-3.7-flash and drop the oc-minimax-m2.7 alias from the model picker
+- Remove the OrcaRouter and Requesty provider presets
+
 ## [1.5.19] - 2026-10-10
 
 ### Added
