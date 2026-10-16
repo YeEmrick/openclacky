@@ -8,6 +8,49 @@ RSpec.describe Clacky::Tools::FileReader do
   let(:tool) { described_class.new }
 
   describe "#execute" do
+    describe "per-line character limit" do
+      ["x" * 1001, "x" * 7999, "x" * 8000,
+       "中" * 8000, "x" * 7999 + "\n"].each do |sample|
+        it "preserves #{sample.length} characters / #{sample.bytesize} bytes" do
+          Dir.mktmpdir do |dir|
+            path = File.join(dir, "long.txt")
+            File.write(path, sample)
+            result = tool.execute(path: path)
+            expect(result[:error]).to be_nil
+            expect(result[:content]).to eq(sample)
+          end
+        end
+      end
+
+      ["x" * 8001, "中" * 8001, "x" * 8000 + "\n"].each do |sample|
+        it "truncates #{sample.length} characters / #{sample.bytesize} bytes" do
+          Dir.mktmpdir do |dir|
+            path = File.join(dir, "long.txt")
+            File.write(path, sample)
+            result = tool.execute(path: path)
+            expect(result[:error]).to be_nil
+            expect(result[:content]).to eq(
+              sample[0...8000] + "... [Line truncated - #{sample.length} chars]\n"
+            )
+          end
+        end
+      end
+
+      it "still caps combined content at 60_000 characters before the notice" do
+        Dir.mktmpdir do |dir|
+          path = File.join(dir, "many-long-lines.txt")
+          File.write(path, ("x" * 4999 + "\n") * 13)
+          result = tool.execute(path: path)
+          expect(result[:error]).to be_nil
+          expect(result[:truncated]).to be true
+          expect(result[:content][0...60_000]).to eq(("x" * 4999 + "\n") * 12)
+          expect(result[:content][60_000..]).to start_with(
+            "\n\n[Content truncated - exceeded 60000 characters"
+          )
+        end
+      end
+    end
+
     context "when reading a file" do
       it "reads file contents" do
         Dir.mktmpdir do |dir|
