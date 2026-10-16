@@ -2,7 +2,6 @@
 
 require "spec_helper"
 require "tmpdir"
-require "timeout"
 require "fileutils"
 require "clacky/server/web_ui_controller"
 
@@ -132,78 +131,84 @@ RSpec.describe Clacky::Server::WebUIController, "#show_tool_call" do
   end
 end
 
-RSpec.describe Clacky::Server::WebUIController, 'native feedback countdown' do
-  let(:events) { [] }
-  let(:started) { Queue.new }
-  let(:controller) do
-    described_class.new('s', lambda { |_sid, event|
-      events << event
-      started << event if event[:type] == 'feedback_countdown_started'
-    })
+RSpec.describe Clacky::Server::WebUIController, "feedback countdown" do
+  let(:events) { Queue.new }
+  let(:controller) { described_class.new("s", ->(_sid, event) { events << event }) }
+
+  def next_event
+    Timeout.timeout(2) { events.pop }
   end
-  let(:question) { { question: 'Pick?', recommended_label: 'Recommended' } }
-  before do
-    @now = 10.0
-    allow(Process).to receive(:clock_gettime).and_call_original
-    allow(Process).to receive(:clock_gettime).with(Process::CLOCK_MONOTONIC) { @now }
+
+  after { @worker&.kill; @worker&.join }
+
+  it "times out without selecting a recommended answer" do
+    expect(controller.request_feedback_with_countdown(seconds: 0)).to eq(:timeout)
+    expect(next_event[:deadline_ms]).to be_a(Integer)
+    expect(next_event).to include(resolved: true, resolution: :timeout)
   end
-  after do
-    @worker&.kill
-    @worker&.join
-  end
-  def start_wait
-    @worker = Thread.new { controller.wait_for_feedback(timeout_seconds: 60, **question) {} }
-    Timeout.timeout(1) { started.pop }
-  end
-  def advance(seconds)
-    controller.instance_variable_get(:@mutex).synchronize do
-      @now += seconds
-      controller.instance_variable_get(:@pending_feedback)[:cond].signal
-    end
-  end
-  it 'shows manual questions without creating a countdown' do
-    shown = false
-    expect(controller.wait_for_feedback(timeout_seconds: nil, **question) { shown = true }).to be_nil
-    expect(shown).to be(true)
-    expect(events).to be_empty
-  end
-  it 'uses the supplied timeout and recommended answer' do
-    event = start_wait
-    expect(event).to include(duration_seconds: 60, question: 'Pick?', recommended_label: 'Recommended')
-    expect(event[:deadline_ms]).to be_within(100).of((Time.now.to_f * 1000).to_i + 60_000)
-    advance(59)
-    expect(controller.instance_variable_get(:@pending_feedback)[:answer]).to be_nil
-    advance(1)
-    expect(Timeout.timeout(1) { @worker.value.first }).to eq('Recommended')
-    expect(events).to include(hash_including(type: 'feedback_countdown_resolved', resolution: 'timeout', answer: 'Recommended'))
-  end
-  it 'preserves caller-provided presentation, attachments and references' do
-    start_wait
-    options = { display_text: 'My answer', files: [{ path: '/tmp/answer.png' }], references_display: [{ name: 'previous chat' }] }
-    expect(controller.deliver_feedback('Use this', **options)).to be(true)
-    expect(Timeout.timeout(1) { @worker.value }).to eq(['Use this', options])
-    expect(events).to include(hash_including(type: 'feedback_countdown_resolved', resolution: 'human'))
-  end
-  it 'replays the original deadline without restarting the wait' do
-    event = start_wait
-    advance(50)
+
+  it "ends countdown waiting on intervention and rejects stale interventions" do
+    @worker = Thread.new { controller.request_feedback_with_countdown(seconds: 20) }
+    started = next_event
+    expect(controller.intervene_feedback("stale-id")).to be false
+    expect(controller.intervene_feedback(started[:request_id])).to be true
+    expect(next_event[:deadline_ms]).to be_nil
+    expect(@worker.join(2).value).to eq(:intervened)
+    expect(next_event).to include(resolved: true, resolution: :intervened)
+    expect(controller.intervene_feedback(started[:request_id])).to be false
     controller.replay_live_state
-    expect(events.select { |e| e[:type] == 'feedback_countdown_started' }).to eq([event, event])
-    advance(10)
-    expect(Timeout.timeout(1) { @worker.value.first }).to eq('Recommended')
+    expect(next_event).to include(resolved: true)
   end
-  it 'cleans up cancellation with one generic cancelled outcome' do
-    start_wait
-    @worker.kill
-    @worker.join
-    expect(events).to include(hash_including(type: 'feedback_countdown_resolved', resolution: 'cancelled'))
+
+  it "pauses a running countdown in manual mode and restarts it in auto mode" do
+    @worker = Thread.new { controller.request_feedback_with_countdown(seconds: 0.08) }
+    started = next_event
+    controller.update_permission_mode(:confirm_all)
+    expect(next_event).to include(request_id: started[:request_id], deadline_ms: nil)
+    sleep 0.1
+    expect(@worker).to be_alive
     controller.replay_live_state
-    expect(events.count { |e| e[:type] == 'feedback_countdown_started' }).to eq(1)
+    expect(next_event[:deadline_ms]).to be_nil
+    controller.update_permission_mode(:auto_approve)
+    expect(next_event[:deadline_ms]).to be > started[:deadline_ms]
+    expect(@worker.join(2).value).to eq(:timeout)
   end
-  it 'rejects invalid timeouts without starting a wait' do
-    [-1, 0.5, '60'].each do |timeout|
-      expect { controller.wait_for_feedback(timeout_seconds: timeout, **question) {} }.to raise_error(ArgumentError)
+
+  it "does not restart an intervened countdown when switching back to auto" do
+    @worker = Thread.new { controller.request_feedback_with_countdown(seconds: 20) }
+    started = next_event
+    controller.intervene_feedback(started[:request_id])
+    expect(@worker.join(2).value).to eq(:intervened)
+    controller.update_permission_mode(:confirm_all)
+    controller.update_permission_mode(:auto_approve)
+    controller.replay_live_state
+    next_event
+    expect(next_event).to include(resolved: true, resolution: :intervened)
+    expect(next_event).to include(resolved: true)
+  end
+
+  it "honors a switch to manual immediately before the countdown starts" do
+    controller.update_permission_mode(:confirm_all)
+    @worker = Thread.new { controller.request_feedback_with_countdown(seconds: 0) }
+    started = next_event
+    expect(started[:deadline_ms]).to be_nil
+    controller.intervene_feedback(started[:request_id])
+    expect(@worker.join(2).value).to eq(:intervened)
+  end
+
+  it "replays the original deadline and cleans up on interruption" do
+    @worker = Thread.new do
+      controller.request_feedback_with_countdown(seconds: 20)
+    rescue Clacky::AgentInterrupted
+      :interrupted
     end
-    expect(events).to be_empty
+    started = next_event
+    controller.replay_live_state
+    expect(next_event).to include(request_id: started[:request_id], deadline_ms: started[:deadline_ms])
+    @worker.raise(Clacky::AgentInterrupted)
+    expect(@worker.join(2).value).to eq(:interrupted)
+    expect(next_event).to include(resolved: true, resolution: :cancelled)
+    controller.replay_live_state
+    expect(next_event).to include(resolved: true)
   end
 end

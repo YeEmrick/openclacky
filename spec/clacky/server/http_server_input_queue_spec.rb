@@ -20,32 +20,91 @@ RSpec.describe Clacky::Server::HttpServer, "input behavior routing" do
     registry.with_session("s") { |s| s[:agent] = agent; s[:status] = :running }
   end
 
-  context 'native feedback routing' do
-    let(:events) { [] }
-    let(:ui) { Clacky::Server::WebUIController.new('s', ->(_sid, event) { events << event }) }
-    let(:connection) { double('connection', session_id: 's', send_json: nil) }
-    before { registry.with_session('s') { |s| s[:ui] = ui } }
-    it 'passes feedback options with the message rather than setting session mode' do
-      expect(server).to receive(:handle_user_message).with('s', 'Build', [], references: [], feedback: { timeout_seconds: 45 })
-      server.on_ws_message(connection, JSON.generate(type: 'message', session_id: 's', content: 'Build', feedback: { timeout_seconds: 45 }))
-      expect(config.permission_mode).to eq(:confirm_safes)
-    end
-    it 'keeps feedback options on queued tasks' do
-      expect(agent).to receive(:enqueue_input).with('next task', hash_including(feedback: { timeout_seconds: nil }))
-      server.send(:handle_user_message, 's', 'next task', feedback: { timeout_seconds: nil })
-    end
-    it 'delivers explicit feedback without starting a new run' do
-      files = [{ 'path' => '/tmp/answer.png', 'name' => 'answer.png' }]
-      expect(ui).to receive(:deliver_feedback).with('answer', hash_including(files: files, display_text: 'My answer'))
-      expect(agent).not_to receive(:enqueue_input)
-      server.on_ws_message(connection, JSON.generate(type: 'feedback_response', session_id: 's', content: 'answer', display_text: 'My answer', files: files))
-    end
-    it 'keeps ordinary messages on the existing input queue path' do
-      expect(ui).not_to receive(:deliver_feedback)
-      expect(agent).to receive(:enqueue_input).with('new instruction', hash_including(delivery: :queue))
-      server.send(:handle_user_message, 's', 'new instruction')
+  describe "permission switching" do
+    let(:response) { WEBrick::HTTPResponse.new(WEBrick::Config::HTTP) }
+    let(:request) { double("request", body: JSON.generate(permission_mode: "auto_approve")) }
+
+    before do
+      server.instance_variable_set(:@session_manager, double("manager", save: true))
+      allow(server).to receive(:broadcast_session_update)
+      allow(agent).to receive(:goal_active?).and_return(false)
     end
 
+    it "changes and saves an idle session" do
+      registry.with_session("s") { |s| s[:status] = :idle }
+      expect(agent).to receive(:permission_mode=).with("auto_approve")
+      expect(agent).to receive(:to_session_data).and_return({})
+      server.send(:api_switch_session_permission_mode, "s", request, response)
+      expect(response.status).to eq(200)
+    end
+
+    it "changes mode without interrupting a running task" do
+      expect(agent).to receive(:permission_mode=).with("auto_approve")
+      expect(agent).to receive(:to_session_data).and_return({})
+      expect(server).not_to receive(:interrupt_session)
+      server.send(:api_switch_session_permission_mode, "s", request, response)
+      expect(response.status).to eq(200)
+    end
+
+    it "allows switching while a worker thread is alive" do
+      registry.with_session("s") do |session|
+        session[:status] = :idle
+        session[:thread] = double("worker", alive?: true)
+      end
+      expect(agent).to receive(:permission_mode=).with("auto_approve")
+      expect(agent).to receive(:to_session_data).and_return({})
+      server.send(:api_switch_session_permission_mode, "s", request, response)
+      expect(response.status).to eq(200)
+    end
+
+    it "allows switching during an active goal" do
+      registry.with_session("s") { |session| session[:status] = :idle }
+      allow(agent).to receive(:goal_active?).and_return(true)
+      expect(agent).to receive(:permission_mode=).with("auto_approve")
+      expect(agent).to receive(:to_session_data).and_return({})
+      server.send(:api_switch_session_permission_mode, "s", request, response)
+      expect(response.status).to eq(200)
+    end
+
+    it "rejects invalid modes" do
+      allow(request).to receive(:body).and_return(JSON.generate(permission_mode: "unknown"))
+      expect(agent).not_to receive(:permission_mode=)
+      server.send(:api_switch_session_permission_mode, "s", request, response)
+      expect(response.status).to eq(400)
+    end
+  end
+
+  it "routes feedback with attachments through the normal path after intervention" do
+    events = Queue.new
+    ui = Clacky::Server::WebUIController.new("s", ->(_sid, event) { events << event })
+    registry.with_session("s") { |session| session[:ui] = ui }
+    config.input_behavior = "interrupt"
+    worker = Thread.new do
+      ui.request_feedback_with_countdown(seconds: 20)
+      registry.with_session("s") { |session| session[:status] = :awaiting_feedback }
+    end
+    registry.with_session("s") { |session| session[:thread] = worker }
+    started = Timeout.timeout(2) { events.pop }
+    server.on_ws_message(double("connection"), JSON.generate(
+      type: "feedback_intervene", session_id: "s", request_id: started[:request_id]
+    ))
+    files = [{ "name" => "answer.txt", "path" => "/tmp/answer.txt" }]
+    references = [{ "type" => "file", "path" => "/tmp/context.txt" }]
+    allow(server).to receive(:build_reference_contexts).with(references).and_return(["context"])
+    allow(agent).to receive(:history).and_return([{}])
+    allow(agent).to receive(:parse_skill_command).and_return(found: false)
+    allow(ui).to receive(:show_user_message)
+    server.instance_variable_set(:@channel_manager, double(channel_ui_for_session: nil))
+    expect(agent).not_to receive(:enqueue_input)
+    expect(agent).to receive(:run).with("my answer", hash_including(
+      files: files, references_display: references, reference_contexts: ["context"]))
+    expect(server).not_to receive(:interrupt_session)
+    allow(server).to receive(:run_agent_task).and_yield
+    server.send(:handle_user_message, "s", "my answer", files, references: references)
+    expect(worker).not_to be_alive
+  ensure
+    worker&.kill
+    worker&.join
   end
 
   it "queues an opted-in message without interrupting or spawning another run" do

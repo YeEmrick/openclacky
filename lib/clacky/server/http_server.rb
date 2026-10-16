@@ -870,6 +870,9 @@ module Clacky
           elsif method == "PATCH" && path.match?(%r{^/api/sessions/[^/]+/project$})
             session_id = path.sub("/api/sessions/", "").sub("/project", "")
             api_update_session_project(session_id, req, res)
+          elsif method == "PATCH" && path.match?(%r{^/api/sessions/[^/]+/permission_mode$})
+            session_id = path.split("/")[3]
+            api_switch_session_permission_mode(session_id, req, res)
           elsif method == "PATCH" && path.match?(%r{^/api/sessions/[^/]+/model$})
             session_id = path.sub("/api/sessions/", "").sub("/model", "")
             api_switch_session_model(session_id, req, res)
@@ -7346,6 +7349,24 @@ module Clacky
         json_response(res, 500, { error: e.message })
       end
 
+      # PATCH /api/sessions/:id/permission_mode — session-only, never global.
+      def api_switch_session_permission_mode(session_id, req, res)
+        mode = parse_json_body(req)["permission_mode"].to_s
+        unless %w[confirm_all auto_approve].include?(mode)
+          return json_response(res, 400, { error: "Invalid permission mode" })
+        end
+        return json_response(res, 404, { error: "Session not found" }) unless @registry.ensure(session_id)
+
+        @registry.with_session(session_id) do |session|
+          agent = session[:agent]
+          return json_response(res, 404, { error: "Session not found" }) unless agent
+          agent.permission_mode = mode
+          @session_manager.save(agent.to_session_data(updated_at: Time.now))
+        end
+        broadcast_session_update(session_id)
+        json_response(res, 200, { ok: true, permission_mode: mode })
+      end
+
       def api_switch_session_model(session_id, req, res)
         body = parse_json_body(req)
         model_id = body["model_id"].to_s.strip
@@ -7841,14 +7862,16 @@ module Clacky
           raw_images = (msg["images"] || []).map do |data_url|
             { "data_url" => data_url, "name" => "image.jpg", "mime_type" => "image/jpeg" }
           end
-          handle_user_message(session_id, msg["content"].to_s, (msg["files"] || []) + raw_images, references: msg["references"] || [], feedback: msg["feedback"]&.transform_keys(&:to_sym))
+          handle_user_message(session_id, msg["content"].to_s, (msg["files"] || []) + raw_images, references: msg["references"] || [])
 
-        when "feedback_response"
+        when "feedback_intervene"
           session_id = msg["session_id"] || conn.session_id
-          @registry.get(session_id)&.dig(:ui)&.deliver_feedback(
-            msg["content"].to_s, files: msg["files"] || [], display_text: msg["display_text"],
-            references_display: msg["references"] || [],
-            reference_contexts: build_reference_contexts(msg["references"] || []))
+          session = @registry.get(session_id)
+          if session&.dig(:ui)&.intervene_feedback(msg["request_id"])
+            # Finish the handoff before processing the next message on this connection.
+            # An immediate submission then uses the ordinary awaiting-feedback path.
+            session[:thread]&.join
+          end
 
         when "confirmation"
           session_id = msg["session_id"] || conn.session_id
@@ -7948,12 +7971,10 @@ module Clacky
         end
       end
 
-      def handle_user_message(session_id, content, files = [], references: [], feedback: nil)
+      def handle_user_message(session_id, content, files = [], references: [])
         return unless @registry.exist?(session_id)
 
         session = @registry.get(session_id)
-        feedback_options = feedback ? { feedback: feedback } : {}
-
         mode = @agent_config.input_behavior
         queued = false
         queued_created_at = nil
@@ -7961,7 +7982,7 @@ module Clacky
           if s[:status] == :running && %w[queue steer].include?(mode)
             queued_created_at = Time.now.to_f
             s[:agent].enqueue_input(content, delivery: mode.to_sym, files: files, references_display: references,
-                                    reference_contexts: build_reference_contexts(references), created_at: queued_created_at, **feedback_options)
+                                    reference_contexts: build_reference_contexts(references), created_at: queued_created_at)
             queued = true
           end
         end
@@ -7984,7 +8005,7 @@ module Clacky
           if old_thread && !old_thread.join(2)
             retained_created_at = Time.now.to_f
             session[:agent].enqueue_input(content, files: files, references_display: references,
-                                          reference_contexts: build_reference_contexts(references), created_at: retained_created_at, **feedback_options)
+                                          reference_contexts: build_reference_contexts(references), created_at: retained_created_at)
             broadcast(session_id, { type: "input_enqueued", session_id: session_id, created_at: retained_created_at })
             broadcast(session_id, { type: "input_queue_notice", session_id: session_id, key: "chat.input.stoppingDelayed" })
             return
@@ -8042,7 +8063,7 @@ module Clacky
           # "Thinking..." forever. A web-originated turn bound to an IM channel gets a
           # card too, so tools/narration render like a native IM turn (#603).
           @channel_manager.channel_ui_for_session(session_id)&.start_task(reply_to: nil)
-          agent.run(content, files: files, reference_contexts: reference_contexts, created_at: msg_created_at, references_display: references, **feedback_options)
+          agent.run(content, files: files, reference_contexts: reference_contexts, created_at: msg_created_at, references_display: references)
         end
       end
 
