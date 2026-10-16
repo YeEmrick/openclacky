@@ -46,7 +46,7 @@ module Clacky
       MAX_CONTENT_CHARS = 60_000
 
       # Maximum characters per line (prevent single huge lines from bloating tokens)
-      MAX_LINE_CHARS = 1000
+      MAX_LINE_CHARS = 8_000
 
       def execute(path:, max_lines: 1000, start_line: nil, end_line: nil, working_dir: nil, image_max_width: nil)
         # Expand path relative to working_dir when provided
