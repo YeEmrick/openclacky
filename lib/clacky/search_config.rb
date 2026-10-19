@@ -7,11 +7,10 @@ require_relative "deepseek_web_tools"
 module Clacky
   # Search provider selection, backed by ~/.clacky/search.yml.
   #
-  # DeepSeek's hosted web tools are the default: they are the only provider that
-  # renders JS-heavy pages to Markdown, and a key is usually already at hand from
-  # the configured model. When no key can be resolved — or DeepSeek starts
-  # failing — web_search falls back to the built-in Parallel/DuckDuckGo/Bing
-  # chain, which needs no configuration at all.
+  # The built-in Parallel/DuckDuckGo/Bing chain is the default: it needs no key
+  # and no configuration, so a fresh install searches the web out of the box.
+  # DeepSeek's hosted web tools are opt-in — they render JS-heavy pages to
+  # Markdown but bill per call, so they only run once the user picks them.
   #
   # search.yml schema:
   #   provider: tavily     — "deepseek_web" for DeepSeek's hosted
@@ -20,10 +19,8 @@ module Clacky
   #   key: tvly-xxx        — credential for the selected provider (optional for
   #                          deepseek_web, which can reuse a configured model key)
   #
-  # A file that does not exist yet resolves to deepseek_web, so a model key is
-  # used as soon as one exists. The settings UI does not trust that fallback: while
-  # nothing is saved it shows deepseek_web only when a key is actually resolvable,
-  # otherwise it shows the free chain that would really run.
+  # A missing file, or one without a `provider` key, means "never chosen" and
+  # resolves to the free chain.
   #
   # The directory is the registry: dropping my_engine.rb into
   # ~/.clacky/searchers/ and setting `provider: my_engine` is all it takes,
@@ -72,18 +69,8 @@ module Clacky
         load["provider"] == DEEPSEEK_WEB
       end
 
-      # True when search.yml records an explicit provider choice. A missing file
-      # or a file without a `provider` key means "never chosen", so callers may
-      # show a suggestion derived from the configured models instead.
-      def configured?
-        raw = YAML.load_file(CONFIG_PATH)
-        raw.is_a?(Hash) && raw.key?("provider")
-      rescue StandardError
-        false
-      end
-
       private def default_config
-        { "provider" => DEEPSEEK_WEB, "key" => "" }
+        { "provider" => "", "key" => "" }
       end
 
       # Absolute path of the configured searcher, or nil when unset/missing.

@@ -41,7 +41,7 @@ RSpec.describe Clacky::Server::HttpServer, "search routes" do
   end
 
   describe "GET /api/config/search" do
-    it "suggests the free chain when no model can serve DeepSeek web tools" do
+    it "returns the free chain when nothing has been saved" do
       install_searcher("tavily", "puts '[]'")
 
       status, body = call("GET", "/api/config/search")
@@ -52,32 +52,7 @@ RSpec.describe Clacky::Server::HttpServer, "search routes" do
       expect(body["available"]).to eq(["tavily"])
     end
 
-    it "suggests DeepSeek when a configured DeepSeek model carries a key" do
-      config = Clacky::AgentConfig.new(models: [
-        { "model" => "deepseek-v4-pro", "provider_id" => "deepseekv4",
-          "api_key" => "sk-deepseek", "base_url" => "https://api.deepseek.com/v1",
-          "type" => "default" }
-      ])
-
-      _status, body = call("GET", "/api/config/search", config: config)
-
-      expect(body["provider"]).to eq("deepseek_web")
-    end
-
-    it "suggests DeepSeek when a configured OpenClacky model carries a key" do
-      config = Clacky::AgentConfig.new(models: [
-        { "model" => "glm-4.6", "provider_id" => "openclacky",
-          "api_key" => "clacky-abc", "base_url" => "https://api.openclacky.com/v1",
-          "type" => "default" }
-      ])
-
-      _status, body = call("GET", "/api/config/search", config: config)
-
-      expect(body["provider"]).to eq("deepseek_web")
-    end
-
-    it "honours an explicit choice once search.yml exists" do
-      Clacky::SearchConfig.save(provider: "", key: "")
+    it "stays on the free chain even when a model could serve DeepSeek web tools" do
       config = Clacky::AgentConfig.new(models: [
         { "model" => "deepseek-v4-pro", "provider_id" => "deepseekv4",
           "api_key" => "sk-deepseek", "base_url" => "https://api.deepseek.com/v1",
@@ -87,6 +62,14 @@ RSpec.describe Clacky::Server::HttpServer, "search routes" do
       _status, body = call("GET", "/api/config/search", config: config)
 
       expect(body["provider"]).to eq("")
+    end
+
+    it "returns the saved provider" do
+      Clacky::SearchConfig.save(provider: "deepseek_web", key: "")
+
+      _status, body = call("GET", "/api/config/search")
+
+      expect(body["provider"]).to eq("deepseek_web")
     end
 
     it "masks the stored key" do

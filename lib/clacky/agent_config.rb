@@ -736,7 +736,7 @@ module Clacky
 
     # Find the API key to use for DeepSeek web search / page fetch.
     # Resolution order:
-    #   1. Explicit key stored in ~/.clacky/search.yml (settings page)
+    #   1. Explicit key stored in ~/.clacky/search.yml, when DeepSeek is selected
     #   2. Key from the model in use, when its provider declares deepseek_web_tools
     #   3. Key from any other configured model declaring the same capability
     #   4. nil if none is configured

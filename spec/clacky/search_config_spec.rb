@@ -13,8 +13,15 @@ RSpec.describe Clacky::SearchConfig do
   after { FileUtils.rm_rf(@dir) }
 
   describe ".load" do
-    it "defaults to DeepSeek's hosted tools when no config exists" do
-      expect(described_class.load).to eq("provider" => "deepseek_web", "key" => "")
+    it "defaults to the free engine chain when no config exists" do
+      expect(described_class.load).to eq("provider" => "", "key" => "")
+    end
+
+    it "reads a saved DeepSeek choice" do
+      described_class.save(provider: described_class::DEEPSEEK_WEB, key: "")
+
+      expect(described_class.load["provider"]).to eq("deepseek_web")
+      expect(described_class.deepseek_web?).to be true
     end
 
     it "keeps a blank provider, which means built-in engines only" do
@@ -35,37 +42,13 @@ RSpec.describe Clacky::SearchConfig do
     it "tolerates malformed YAML instead of raising" do
       File.write(described_class::CONFIG_PATH, "provider: [unclosed")
 
-      expect(described_class.load["provider"]).to eq("deepseek_web")
+      expect(described_class.load["provider"]).to eq("")
     end
 
     it "tolerates a non-Hash document" do
       File.write(described_class::CONFIG_PATH, "- just\n- a list\n")
 
       expect(described_class.load["key"]).to eq("")
-    end
-  end
-
-  describe ".configured?" do
-    it "is false when no config file exists" do
-      expect(described_class.configured?).to be false
-    end
-
-    it "is true after an explicit blank provider is saved" do
-      described_class.save(provider: "", key: "")
-
-      expect(described_class.configured?).to be true
-    end
-
-    it "is false when the file has no provider key" do
-      File.write(described_class::CONFIG_PATH, { "key" => "tvly-1" }.to_yaml)
-
-      expect(described_class.configured?).to be false
-    end
-
-    it "is false for malformed YAML" do
-      File.write(described_class::CONFIG_PATH, "provider: [unclosed")
-
-      expect(described_class.configured?).to be false
     end
   end
 
@@ -108,7 +91,7 @@ RSpec.describe Clacky::SearchConfig do
   end
 
   describe ".script_path" do
-    it "is nil while the default DeepSeek provider is in effect" do
+    it "is nil while no provider is selected" do
       expect(described_class.script_path).to be_nil
     end
 

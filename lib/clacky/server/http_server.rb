@@ -2296,23 +2296,12 @@ module Clacky
       # into ~/.clacky/searchers/, not just the bundled ones.
       def api_get_search_config(res)
         config = Clacky::SearchConfig.load
-        provider = Clacky::SearchConfig.configured? ? config["provider"] : suggested_search_provider
         json_response(res, 200, {
           ok: true,
-          provider: provider,
+          provider: config["provider"],
           key_masked: config["key"].empty? ? nil : mask_api_key(config["key"]),
           available: Clacky::Utils::SearcherManager.available
         })
-      end
-
-      # Nothing saved yet: advertise DeepSeek only when a configured model already
-      # carries a key its web tools accept, otherwise show the free chain that
-      # would actually run.
-      private def suggested_search_provider
-        key = @agent_config && @agent_config.deepseek_web_key.to_s.strip
-        key.nil? || key.empty? ? "" : Clacky::SearchConfig::DEEPSEEK_WEB
-      rescue StandardError
-        ""
       end
 
       # PATCH /api/config/search
