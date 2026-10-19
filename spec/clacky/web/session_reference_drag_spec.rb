@@ -31,7 +31,7 @@ RSpec.describe "Web session reference drag and drop" do
 
   it "provides a compact drag preview and page-level drop-target feedback" do
     expect(styles).to include(".reference-drag-preview")
-    expect(styles).to include('.session-item[draggable="true"]')
+    expect(styles).to include(".session-item.is-dragging")
     expect(styles).to include("#chat-panel.drag-over")
     expect(styles).to include("#welcome.drag-over")
   end

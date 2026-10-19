@@ -1629,12 +1629,8 @@ body {
   margin-bottom: 1px;
   transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
 }
-.session-item[draggable="true"] {
-  cursor: grab;
-}
 .session-item.is-dragging {
   opacity: 0.55;
-  cursor: grabbing;
 }
 /* Two-row text block next to dot */
 .session-body {
