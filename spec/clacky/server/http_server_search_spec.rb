@@ -31,7 +31,9 @@ RSpec.describe Clacky::Server::HttpServer, "search routes" do
     File.write(File.join(@dir, "searchers", "#{name}.rb"), body)
   end
 
-  def call(method, path, body = nil, config: agent_config)
+  # config stays positional: on Ruby <= 2.7 a trailing hash literal would
+  # otherwise be swallowed as keywords and body would never arrive.
+  def call(method, path, body = nil, config = agent_config)
     with_server(agent_config: config) do |server|
       req = fake_req(method: method, path: path, body: body)
       res = fake_res
@@ -59,7 +61,7 @@ RSpec.describe Clacky::Server::HttpServer, "search routes" do
           "type" => "default" }
       ])
 
-      _status, body = call("GET", "/api/config/search", config: config)
+      _status, body = call("GET", "/api/config/search", nil, config)
 
       expect(body["provider"]).to eq("")
     end
