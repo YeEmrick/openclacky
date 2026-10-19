@@ -2296,47 +2296,86 @@ module Clacky
       # into ~/.clacky/searchers/, not just the bundled ones.
       def api_get_search_config(res)
         config = Clacky::SearchConfig.load
+        provider = Clacky::SearchConfig.configured? ? config["provider"] : suggested_search_provider
         json_response(res, 200, {
           ok: true,
-          provider: config["provider"],
+          provider: provider,
           key_masked: config["key"].empty? ? nil : mask_api_key(config["key"]),
           available: Clacky::Utils::SearcherManager.available
         })
       end
 
+      # Nothing saved yet: advertise DeepSeek only when a configured model already
+      # carries a key its web tools accept, otherwise show the free chain that
+      # would actually run.
+      private def suggested_search_provider
+        key = @agent_config && @agent_config.deepseek_web_key.to_s.strip
+        key.nil? || key.empty? ? "" : Clacky::SearchConfig::DEEPSEEK_WEB
+      rescue StandardError
+        ""
+      end
+
       # PATCH /api/config/search
-      # Body: { provider: "tavily"|"", key?: "..." }
+      # Body: { provider?: "tavily"|"deepseek_web"|"", key?: "..." }
+      # Omitted fields keep their current value.
       def api_update_search_config(req, res)
         body = parse_json_body(req)
         return json_response(res, 400, { error: "Invalid JSON" }) unless body
 
         provider = body["provider"].to_s.strip
-        unless provider.empty? || Clacky::Utils::SearcherManager.path_for(provider)
+        if body.key?("provider") && !search_provider_known?(provider)
           return json_response(res, 422, { error: "Unknown search provider: #{provider}" })
         end
 
         key = body["key"].to_s
         key = Clacky::SearchConfig.key if key.include?("****")
 
-        Clacky::SearchConfig.save(provider: provider, key: key)
-        json_response(res, 200, { ok: true, provider: provider })
+        current = Clacky::SearchConfig.load
+        final_provider = body.key?("provider") ? provider : current["provider"]
+        final_key      = body.key?("key") ? key : current["key"]
+
+        # deepseek_web falls back to the configured model key, so it may be
+        # saved without one. Every other searcher is a script that reads the
+        # key from CLACKY_SEARCH_KEY and cannot run without it.
+        if !final_provider.empty? &&
+           final_provider != Clacky::SearchConfig::DEEPSEEK_WEB &&
+           final_key.to_s.strip.empty?
+          return json_response(res, 422, {
+            error: "API key is required for search provider '#{final_provider}'"
+          })
+        end
+
+        Clacky::SearchConfig.save(
+          provider: body.key?("provider") ? provider : nil,
+          key: body.key?("key") ? key : nil
+        )
+        config = Clacky::SearchConfig.load
+        json_response(res, 200, { ok: true, provider: config["provider"] })
       rescue => e
         json_response(res, 422, { error: e.message })
       end
 
+      private def search_provider_known?(provider)
+        return true if provider.empty?
+        return true if provider == Clacky::SearchConfig::DEEPSEEK_WEB
+
+        !Clacky::Utils::SearcherManager.path_for(provider).nil?
+      end
+
       # POST /api/config/search/test
-      # Runs the searcher with a fixed query so the user gets a definitive
-      # answer before saving, rather than discovering a bad key mid-task.
+      # Runs the configured engine with a fixed query so the user gets a
+      # definitive answer before saving, rather than discovering a bad key mid-task.
       def api_test_search_config(req, res)
         body = parse_json_body(req) || {}
         provider = body["provider"].to_s.strip
         return json_response(res, 200, { ok: false, message: "provider is required" }) if provider.empty?
 
-        script = Clacky::Utils::SearcherManager.path_for(provider)
-        return json_response(res, 200, { ok: false, message: "searcher not found: #{provider}" }) unless script
-
         key = body["key"].to_s
         key = Clacky::SearchConfig.key if key.empty? || key.include?("****")
+        return test_deepseek_web_search(res, key) if provider == Clacky::SearchConfig::DEEPSEEK_WEB
+
+        script = Clacky::Utils::SearcherManager.path_for(provider)
+        return json_response(res, 200, { ok: false, message: "searcher not found: #{provider}" }) unless script
 
         stdout, stderr, status = Clacky::Utils::ParserManager.capture3_with_timeout(
           { "CLACKY_SEARCH_KEY" => key },
@@ -2361,6 +2400,23 @@ module Clacky
         end
 
         json_response(res, 200, { ok: true, message: "Returned #{count} result(s)" })
+      rescue => e
+        json_response(res, 200, { ok: false, message: e.message })
+      end
+
+      private def test_deepseek_web_search(res, key)
+        key = @agent_config.deepseek_web_key.to_s if key.empty?
+        if key.empty?
+          return json_response(res, 200, {
+            ok: false, message: "No DeepSeek key: fill one in or configure a DeepSeek / OpenClacky model"
+          })
+        end
+
+        results = Clacky::DeepSeekWebTools.search(
+          query: "openclacky", count: 1, api_key: key,
+          base_url: @agent_config.deepseek_web_base_url(key)
+        )
+        json_response(res, 200, { ok: true, message: "Returned #{results.size} result(s)" })
       rescue => e
         json_response(res, 200, { ok: false, message: e.message })
       end

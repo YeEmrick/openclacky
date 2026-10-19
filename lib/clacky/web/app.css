@@ -7511,6 +7511,16 @@ body {
   line-height: 1.5;
   margin: 0;
 }
+.settings-network-note {
+  font-size: 0.75rem;
+  color: var(--color-text-tertiary);
+  line-height: 1.5;
+  margin: 0;
+}
+.settings-network-divider {
+  border-top: 1px solid var(--color-border-secondary);
+  padding-top: 0.75rem;
+}
 
 /* ── Backup section ── */
 .backup-auto-card {

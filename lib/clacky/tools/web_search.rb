@@ -6,6 +6,7 @@ require "uri"
 require "cgi"
 require "base64"
 require_relative "../utils/encoding"
+require_relative "../deepseek_web_tools"
 
 module Clacky
   module Tools
@@ -37,7 +38,9 @@ module Clacky
       SEARCHER_TIMEOUT = 30
       PARALLEL_ENDPOINT = "https://search.parallel.ai/mcp"
       PARALLEL_SNIPPET_MAX_CHARS = 400
-      PROVIDER_COOLDOWN_SECONDS = 600
+      # Shared by every provider, hosted or free: one failure keeps that
+      # provider out of the retry path for the whole window.
+      PROVIDER_COOLDOWN_SECONDS = 3600
 
       def execute(query:, max_results: 10, working_dir: nil)
         if query.nil? || query.strip.empty?
@@ -62,10 +65,13 @@ module Clacky
             }
           rescue StandardError => e
             # Avoid paying the same network/handshake failure on every search.
-            if provider == :parallel
+            case provider
+            when :deepseek
+              Clacky::DeepSeekWebTools.mark_unavailable!
+            when :parallel
               reset_parallel_client
               @parallel_unavailable_until = Time.now + PROVIDER_COOLDOWN_SECONDS
-            elsif provider == :duckduckgo
+            when :duckduckgo
               @ddg_unavailable_until = Time.now + PROVIDER_COOLDOWN_SECONDS
             end
             last_error = e
@@ -90,6 +96,10 @@ module Clacky
           "Configured search provider '#{name}' failed. #{reason} " \
             "Check the key and the script at #{Clacky::SearchConfig.script_path}, " \
             "or reconfigure it in Settings → Search."
+        elsif providers.include?(:deepseek)
+          "DeepSeek web search failed and no free engine returned results. #{reason} " \
+            "Check the API key and balance in Settings → Web Search; DeepSeek will be " \
+            "retried in #{PROVIDER_COOLDOWN_SECONDS / 60} minutes."
         else
           "All search providers failed. #{reason}"
         end
@@ -102,13 +112,23 @@ module Clacky
         # broken key or script look like a low-quality result set.
         return [:custom] if Clacky::SearchConfig.script_path
 
-        PROVIDERS.reject do |provider|
+        free_chain = PROVIDERS.reject do |provider|
           unavailable_until = case provider
                               when :parallel then @parallel_unavailable_until
                               when :duckduckgo then @ddg_unavailable_until
                               end
           unavailable_until && Time.now < unavailable_until
         end
+
+        return free_chain unless Clacky::SearchConfig.deepseek_web?
+
+        # DeepSeek leads the chain but does not replace the free engines: a
+        # missing key, an exhausted balance or an outage should degrade to a
+        # working search rather than return nothing.
+        return free_chain if Clacky::DeepSeekWebTools.cooling_down?
+        return free_chain unless deepseek_web_available?
+
+        [:deepseek] + free_chain
       end
 
       # ── Parallel Free MCP ──────────────────────────────────────────────────
@@ -169,6 +189,27 @@ module Clacky
         Array(result["content"]).filter_map do |item|
           item["text"] if item.is_a?(Hash) && item["type"] == "text"
         end.join("\n")
+      end
+
+      # ── DeepSeek hosted search (paid, opt-in) ──────────────────────────────
+
+      private def deepseek_web_available?
+        return false unless agent
+
+        agent.config.deepseek_web_ready?
+      rescue StandardError
+        false
+      end
+
+      private def search_deepseek(query, max_results)
+        config = agent.config
+        key = config.deepseek_web_key
+        Clacky::DeepSeekWebTools.search(
+          query: query,
+          count: max_results,
+          api_key: key,
+          base_url: config.deepseek_web_base_url(key)
+        )
       end
 
       # ── Configured searcher (~/.clacky/searchers/<provider>.rb) ────────────

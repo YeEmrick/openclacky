@@ -5,6 +5,7 @@ require "uri"
 require "tmpdir"
 require "fileutils"
 require_relative "../utils/encoding"
+require_relative "../deepseek_web_tools"
 
 module Clacky
   module Tools
@@ -39,30 +40,88 @@ module Clacky
           return { error: "Invalid URL: #{e.message}" }
         end
 
-        begin
-          # Fetch the web page
-          response = fetch_url(uri)
-
-          # Extract content and force UTF-8 encoding at the source
-          content = Clacky::Utils::Encoding.to_utf8(response.body)
-          content_type = response["content-type"] || ""
-
-          # Parse HTML if it's an HTML page
-          if content_type.include?("text/html")
-            result = parse_html(content, max_length, url)
-            result[:url] = url
-            result[:content_type] = content_type
-            result[:status_code] = response.code.to_i
-            result[:error] = nil
-            result
-          else
-            # For non-HTML content, return raw text
-            result = handle_raw_content(content, max_length, url, content_type, response.code.to_i)
-            result
+        deepseek_error = nil
+        if deepseek_fetch_selected?
+          begin
+            return fetch_via_deepseek(url, max_length)
+          rescue StandardError => e
+            # A paid upstream failure must not cost the user the page, so keep
+            # going with the local scraper. The cooldown stops the next fetch
+            # from paying the same timeout.
+            deepseek_error = e
+            Clacky::DeepSeekWebTools.mark_unavailable!
           end
-        rescue StandardError => e
-          { error: "Failed to fetch URL: #{e.message}" }
         end
+
+        result = fetch_locally(uri, url, max_length)
+        if deepseek_error && result[:error]
+          result[:error] = "#{result[:error]} (DeepSeek: #{deepseek_error.message})"
+        end
+        result
+      end
+
+      private def fetch_locally(uri, url, max_length)
+        response = fetch_url(uri)
+
+        content = Clacky::Utils::Encoding.to_utf8(response.body)
+        content_type = response["content-type"] || ""
+
+        if content_type.include?("text/html")
+          result = parse_html(content, max_length, url)
+          result[:url] = url
+          result[:content_type] = content_type
+          result[:status_code] = response.code.to_i
+          result[:error] = nil
+          result
+        else
+          handle_raw_content(content, max_length, url, content_type, response.code.to_i)
+        end
+      rescue StandardError => e
+        { error: "Failed to fetch URL: #{e.message}" }
+      end
+
+      # DeepSeek renders pages to clean Markdown, which covers JS-heavy sites the
+      # local scraper cannot read. Runs only when the user picks it as the search
+      # provider; #execute falls back to the local scraper when it raises.
+      private def fetch_via_deepseek(url, max_length)
+        config = agent.config
+        key = config.deepseek_web_key
+        data = Clacky::DeepSeekWebTools.fetch(
+          url: url,
+          api_key: key,
+          base_url: config.deepseek_web_base_url(key)
+        )
+
+        text = data[:content].to_s
+        truncated = text.length > max_length
+        temp_file = nil
+        if truncated
+          temp_dir = Dir.mktmpdir
+          safe_name = extract_domain(url).gsub(/[^\w\-.]/, '_')[0...50]
+          timestamp = Time.now.strftime("%Y%m%d_%H%M%S")
+          temp_file = File.join(temp_dir, "#{safe_name}_#{timestamp}.md")
+          File.write(temp_file, text)
+        end
+
+        {
+          url: url,
+          title: data[:title].to_s.strip,
+          content_type: "text/markdown",
+          status_code: 200,
+          content: text[0, max_length],
+          truncated: truncated,
+          temp_file: temp_file,
+          error: nil
+        }
+      end
+
+      private def deepseek_fetch_selected?
+        return false unless agent
+        return false if Clacky::DeepSeekWebTools.cooling_down?
+
+        agent.config.deepseek_web_ready?
+      rescue StandardError
+        false
       end
 
       def handle_raw_content(content, max_length, url, content_type, status_code)

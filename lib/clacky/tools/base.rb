@@ -14,8 +14,9 @@ module Clacky
         attr_accessor :receives_tool_call_id
       end
 
-      # Host agent, injected at registration for extension tools so they can
-      # reach its public API (fan_out_labeled, fork_subagent, skill_loader).
+      # Host agent, injected at registration for extension tools and for built-ins
+      # that need its public API (config, fan_out_labeled, fork_subagent,
+      # skill_loader).
       attr_accessor :agent
 
       def name

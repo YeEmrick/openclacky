@@ -199,6 +199,7 @@ module Clacky
         "endpoint_variants" => [
           { "label" => "Primary (Global)",  "label_key" => "settings.models.baseurl.variant.openclacky_primary",   "base_url" => "https://api.openclacky.com" }.freeze
         ].freeze,
+        "deepseek_web_tools" => true,
         "website_url" => "https://www.openclacky.com/llm_keys"
       }.freeze,
 
@@ -229,6 +230,7 @@ module Clacky
         "model_capabilities" => {
           "deepseek-flash" => { "vision" => true }.freeze
         }.freeze,
+        "deepseek_web_tools" => true,
         "website_url" => "https://platform.deepseek.com/api_keys"
       }.freeze,
 
@@ -1172,6 +1174,16 @@ module Clacky
         # When the capability is not declared at either level, default to true.
         return true unless caps.key?(key)
         caps[key] != false
+      end
+
+      # True when the preset declares native DeepSeek web tools (search + fetch).
+      # Currently DeepSeek direct ("deepseekv4") and the OpenClacky platform
+      # gateway ("openclacky").
+      def deepseek_web_tools?(provider_id)
+        preset = PRESETS[provider_id]
+        return false unless preset
+
+        preset["deepseek_web_tools"] == true
       end
     end
   end

@@ -734,6 +734,65 @@ module Clacky
       )
     end
 
+    # Find the API key to use for DeepSeek web search / page fetch.
+    # Resolution order:
+    #   1. Explicit key stored in ~/.clacky/search.yml (settings page)
+    #   2. Key from the model in use, when its provider declares deepseek_web_tools
+    #   3. Key from any other configured model declaring the same capability
+    #   4. nil if none is configured
+    def deepseek_web_key
+      if Clacky::SearchConfig.deepseek_web?
+        explicit = Clacky::SearchConfig.key.to_s.strip
+        return explicit unless explicit.empty?
+      end
+
+      entry = web_tool_candidates.find do |m|
+        next false unless m.is_a?(Hash)
+        next false if m["api_key"].to_s.strip.empty?
+        Clacky::Providers.deepseek_web_tools?(provider_id_for(m))
+      end
+      entry ? entry["api_key"].to_s.strip : nil
+    end
+
+    # True when the paid DeepSeek web tools are usable: they are the selected
+    # search provider and a key could be resolved.
+    def deepseek_web_ready?
+      return false unless Clacky::SearchConfig.deepseek_web?
+
+      !deepseek_web_key.to_s.strip.empty?
+    rescue StandardError
+      false
+    end
+
+    # Endpoint base URL for DeepSeek web tools given the resolved key.
+    # If the key belongs to an OpenClacky model entry (or starts with clacky-),
+    # route to that model's base_url so the platform gateway can proxy and bill
+    # through the unified balance. Otherwise direct to DeepSeek official.
+    def deepseek_web_base_url(resolved_key = nil)
+      key = resolved_key || deepseek_web_key
+      default_url = Clacky::DeepSeekWebTools::DEFAULT_BASE_URL
+      return default_url if key.nil? || key.empty?
+
+      matching = web_tool_candidates.find { |m| m.is_a?(Hash) && m["api_key"].to_s.strip == key }
+      if matching
+        pid = provider_id_for(matching)
+        if pid == Clacky::Providers::OPENCLACKY_ID && matching["base_url"].to_s.strip != ""
+          return matching["base_url"].to_s.chomp("/")
+        end
+      elsif key.start_with?("clacky-")
+        return Clacky::Providers::PRESETS.fetch(Clacky::Providers::OPENCLACKY_ID)["base_url"].chomp("/")
+      end
+
+      default_url
+    end
+
+    # Current model first (so a session-level switch or overlay wins), then the
+    # rest of the configured models as fallback.
+    private def web_tool_candidates
+      current = current_model
+      current ? [current] + @models : @models
+    end
+
     private def derive_media_model(kind, model_override: nil)
       anchor = current_model || find_model_by_type("default")
       return nil unless anchor

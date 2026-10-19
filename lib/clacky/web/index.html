@@ -1407,24 +1407,24 @@
               <span data-i18n="settings.search.title">Web Search</span>
             </div>
             <div class="settings-network">
-              <p class="settings-network-desc" data-i18n="settings.search.desc">Free built-in search uses Parallel, DuckDuckGo, and Bing with no key required. Select a search provider to use a configured API instead.</p>
+              <p class="settings-network-desc" data-i18n="settings.search.desc">The agent searches the web and fetches page content automatically when it needs up-to-date information — news, docs, prices, time-sensitive data.</p>
               <div class="settings-network-url">
                 <label class="settings-network-url-label" for="settings-search-provider-trigger" data-i18n="settings.search.provider">Provider</label>
                 <div class="settings-network-url-row">
                   <div class="custom-select-wrapper" id="settings-search-provider-wrapper">
                     <div class="custom-select-trigger" tabindex="0" id="settings-search-provider-trigger">
-                      <span class="custom-select-value placeholder" id="settings-search-provider-value" data-i18n="settings.search.builtin">Built-in (Parallel / DuckDuckGo / Bing)</span>
+                      <span class="custom-select-value placeholder" id="settings-search-provider-value" data-i18n="settings.search.builtin">Free (auto-selects a working engine)</span>
                       <svg class="custom-select-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
                       </svg>
                     </div>
                     <div class="custom-select-dropdown" id="settings-search-provider-dropdown">
-                      <div class="custom-select-option" data-value="" data-i18n="settings.search.builtin">Built-in (Parallel / DuckDuckGo / Bing)</div>
+                      <div class="custom-select-option" data-value="" data-i18n="settings.search.builtin">Free (auto-selects a working engine)</div>
+                      <div class="custom-select-option" data-value="deepseek_web" data-i18n="settings.search.deepseek">DeepSeek (search &amp; page fetch)</div>
                     </div>
                   </div>
                   <button type="button" id="btn-save-search" class="btn-settings-action" data-i18n="settings.search.save">Save</button>
                 </div>
-                <div id="settings-search-status" class="model-test-result"></div>
               </div>
               <div class="settings-network-url" id="search-key-wrap" style="display:none">
                 <label class="settings-network-url-label" for="settings-search-key" data-i18n="settings.search.key">API Key</label>
@@ -1432,8 +1432,14 @@
                   <input type="password" id="settings-search-key" class="field-input" placeholder="tvly-..." autocomplete="off" spellcheck="false">
                   <button type="button" id="btn-test-search" class="btn-settings-action" data-i18n="settings.search.test">Test</button>
                 </div>
+                <p class="settings-network-note" id="search-deepseek-hint" data-i18n="settings.search.deepseekHintFree" style="display:none">Leave the API Key empty to reuse your configured model key; accepts DeepSeek and OpenClacky provider keys. Per-call billing starts Nov 1, 2026 00:00 (Beijing time) at about ¥0.005 per call.</p>
               </div>
-              <p class="settings-network-desc" data-i18n="settings.search.custom">Add your own provider by dropping a script into ~/.clacky/searchers/ — see tavily.rb for the interface.</p>
+              <p class="settings-network-note" id="search-builtin-note" data-i18n="settings.search.builtinEngines">Tries Parallel → DuckDuckGo → Bing in order. No key or configuration needed.</p>
+              <div id="settings-search-status" class="model-test-result"></div>
+              <div class="settings-network-url-row settings-network-divider" id="custom-searcher-row">
+                <span class="settings-network-note" data-i18n="settings.search.customHint">Need another search provider? Put a script in ~/.clacky/searchers/, see tavily.rb.</span>
+                <button type="button" id="btn-custom-searcher" class="btn-settings-action" data-i18n="settings.search.customBtn">Build with Agent</button>
+              </div>
             </div>
           </section>
 

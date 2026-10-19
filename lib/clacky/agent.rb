@@ -2104,8 +2104,11 @@ module Clacky
       @tool_registry.register(Tools::Edit.new)
       @tool_registry.register(Tools::Glob.new)
       @tool_registry.register(Tools::Grep.new)
-      @tool_registry.register(Tools::WebSearch.new)
-      @tool_registry.register(Tools::WebFetch.new)
+      [Tools::WebSearch, Tools::WebFetch].each do |klass|
+        tool = klass.new
+        tool.agent = self
+        @tool_registry.register(tool)
+      end
       @tool_registry.register(Tools::TodoManager.new)
       @tool_registry.register(Tools::AskUser.new)
       @tool_registry.register(Tools::InvokeSkill.new)

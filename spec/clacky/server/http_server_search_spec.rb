@@ -31,8 +31,8 @@ RSpec.describe Clacky::Server::HttpServer, "search routes" do
     File.write(File.join(@dir, "searchers", "#{name}.rb"), body)
   end
 
-  def call(method, path, body = nil)
-    with_server(agent_config: agent_config) do |server|
+  def call(method, path, body = nil, config: agent_config)
+    with_server(agent_config: config) do |server|
       req = fake_req(method: method, path: path, body: body)
       res = fake_res
       dispatch(server, req, res)
@@ -41,7 +41,7 @@ RSpec.describe Clacky::Server::HttpServer, "search routes" do
   end
 
   describe "GET /api/config/search" do
-    it "reports an unconfigured provider and lists installed searchers" do
+    it "suggests the free chain when no model can serve DeepSeek web tools" do
       install_searcher("tavily", "puts '[]'")
 
       status, body = call("GET", "/api/config/search")
@@ -50,6 +50,43 @@ RSpec.describe Clacky::Server::HttpServer, "search routes" do
       expect(body["provider"]).to eq("")
       expect(body["key_masked"]).to be_nil
       expect(body["available"]).to eq(["tavily"])
+    end
+
+    it "suggests DeepSeek when a configured DeepSeek model carries a key" do
+      config = Clacky::AgentConfig.new(models: [
+        { "model" => "deepseek-v4-pro", "provider_id" => "deepseekv4",
+          "api_key" => "sk-deepseek", "base_url" => "https://api.deepseek.com/v1",
+          "type" => "default" }
+      ])
+
+      _status, body = call("GET", "/api/config/search", config: config)
+
+      expect(body["provider"]).to eq("deepseek_web")
+    end
+
+    it "suggests DeepSeek when a configured OpenClacky model carries a key" do
+      config = Clacky::AgentConfig.new(models: [
+        { "model" => "glm-4.6", "provider_id" => "openclacky",
+          "api_key" => "clacky-abc", "base_url" => "https://api.openclacky.com/v1",
+          "type" => "default" }
+      ])
+
+      _status, body = call("GET", "/api/config/search", config: config)
+
+      expect(body["provider"]).to eq("deepseek_web")
+    end
+
+    it "honours an explicit choice once search.yml exists" do
+      Clacky::SearchConfig.save(provider: "", key: "")
+      config = Clacky::AgentConfig.new(models: [
+        { "model" => "deepseek-v4-pro", "provider_id" => "deepseekv4",
+          "api_key" => "sk-deepseek", "base_url" => "https://api.deepseek.com/v1",
+          "type" => "default" }
+      ])
+
+      _status, body = call("GET", "/api/config/search", config: config)
+
+      expect(body["provider"]).to eq("")
     end
 
     it "masks the stored key" do
@@ -72,7 +109,19 @@ RSpec.describe Clacky::Server::HttpServer, "search routes" do
 
       expect(status).to eq(200)
       expect(body["ok"]).to be true
-      expect(Clacky::SearchConfig.load).to eq("provider" => "tavily", "key" => "k1")
+      expect(Clacky::SearchConfig.load).to include("provider" => "tavily", "key" => "k1")
+    end
+
+    it "accepts the bundled DeepSeek provider without an installed script" do
+      install_searcher("tavily", "puts '[]'")
+
+      status, body = call("PATCH", "/api/config/search",
+                          { provider: "deepseek_web", key: "" })
+
+      expect(status).to eq(200)
+      expect(body["provider"]).to eq("deepseek_web")
+      expect(Clacky::SearchConfig.deepseek_web?).to be true
+      expect(Clacky::SearchConfig.script_path).to be_nil
     end
 
     it "rejects an unknown provider" do
@@ -99,6 +148,26 @@ RSpec.describe Clacky::Server::HttpServer, "search routes" do
       call("PATCH", "/api/config/search", { provider: "tavily", key: "tvly-ori****inal" })
 
       expect(Clacky::SearchConfig.load["key"]).to eq("tvly-original")
+    end
+
+    it "rejects a script searcher with no API key" do
+      install_searcher("tavily", "puts '[]'")
+
+      status, body = call("PATCH", "/api/config/search", { provider: "tavily", key: "" })
+
+      expect(status).to eq(422)
+      expect(body["error"]).to include("API key is required")
+      expect(Clacky::SearchConfig.load["provider"]).not_to eq("tavily")
+    end
+
+    it "rejects switching to a script searcher while the stored key is blank" do
+      install_searcher("tavily", "puts '[]'")
+      Clacky::SearchConfig.save(provider: "", key: "")
+
+      status, body = call("PATCH", "/api/config/search", { provider: "tavily" })
+
+      expect(status).to eq(422)
+      expect(body["error"]).to include("API key is required")
     end
   end
 
@@ -139,6 +208,28 @@ RSpec.describe Clacky::Server::HttpServer, "search routes" do
 
       expect(body["ok"]).to be false
       expect(body["message"]).to include("JSON array")
+    end
+
+    it "tests the bundled DeepSeek provider without a script" do
+      allow(Clacky::DeepSeekWebTools).to receive(:search)
+        .and_return([{ title: "t", url: "https://example.com", snippet: "s" }])
+
+      status, body = call("POST", "/api/config/search/test",
+                          { provider: "deepseek_web", key: "dk-1" })
+
+      expect(status).to eq(200)
+      expect(body["ok"]).to be true
+      expect(body["message"]).to include("1 result")
+      expect(Clacky::DeepSeekWebTools).to have_received(:search)
+        .with(hash_including(api_key: "dk-1"))
+    end
+
+    it "asks for a DeepSeek key when none can be resolved" do
+      _status, body = call("POST", "/api/config/search/test",
+                           { provider: "deepseek_web", key: "" })
+
+      expect(body["ok"]).to be false
+      expect(body["message"]).to include("No DeepSeek key")
     end
   end
 end
