@@ -962,6 +962,9 @@ module Clacky
           elsif method == "PATCH" && path.match?(%r{^/api/projects/[^/]+$})
             project_id = path.sub("/api/projects/", "")
             api_update_project(project_id, req, res)
+          elsif method == "POST" && path.match?(%r{^/api/projects/[^/]+/sessions/archive$})
+            project_id = path.sub("/api/projects/", "").sub("/sessions/archive", "")
+            api_archive_project_sessions(project_id, res)
           elsif method == "DELETE" && path.match?(%r{^/api/projects/[^/]+/sessions$})
             project_id = path.sub("/api/projects/", "").sub("/sessions", "")
             api_delete_project_sessions(project_id, res)
@@ -7305,6 +7308,45 @@ module Clacky
         json_response(res, 200, { ok: true, deleted: deleted })
       rescue => e
         json_response(res, 500, { error: e.message })
+      end
+
+      # POST /api/projects/:id/sessions/archive - archive every live session in a project
+      def api_archive_project_sessions(project_id, res)
+        return json_response(res, 404, { error: "Project not found" }) unless @project_manager.find(project_id)
+
+        archived = _archive_project_sessions(project_id)
+        json_response(res, 200, { ok: true, archived: archived })
+      rescue => e
+        json_response(res, 500, { error: e.message })
+      end
+
+      # Sessions already in the archive keep their original archived_at, so the
+      # archive page stays ordered by when the user actually put them away.
+      private def _archive_project_sessions(project_id)
+        archived = 0
+        now      = Time.now.iso8601
+
+        @session_manager.all_sessions.each do |session_data|
+          next unless session_data[:project_id].to_s == project_id
+          next if session_data[:archived_at]
+
+          sid  = session_data[:session_id]
+          live = nil
+          @registry.with_session(sid) { |s| live = s[:agent] }
+
+          if live
+            live.archived_at = now
+            @session_manager.save(live.to_session_data(updated_at: Time.now))
+          else
+            # Untouched on disk: patch the loaded row rather than restoring an
+            # agent for every session in the project just to stamp one field.
+            @session_manager.save(session_data.merge(archived_at: now, updated_at: now))
+          end
+
+          broadcast(sid, { type: "session_updated", session_id: sid, archived_at: now })
+          archived += 1
+        end
+        archived
       end
 
       private def _delete_project_sessions(project_id)

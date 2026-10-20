@@ -51,9 +51,8 @@ RSpec.describe "Project actions menu UI" do
   end
 
   it "keeps the delete entry neutral until hovered, like the session menu" do
-    danger = styles[/^\.project-actions-menu-item\.danger \{.*?\n\}/m]
-    expect(danger).not_to be_nil
-    expect(danger).not_to include("--color-error")
+    expect(styles).not_to include(".project-actions-menu-item.danger::before")
+    expect(styles).not_to match(/\.project-actions-menu-item\.danger \{.*?margin-top/m)
 
     icon = styles[/^\.project-actions-menu-item\.danger \.project-actions-menu-icon \{.*?\n\}/m]
     expect(icon).to include("var(--color-text-secondary)")
@@ -71,5 +70,66 @@ RSpec.describe "Project actions menu UI" do
     project_icon = projects[/const iconTrash = `([^`]+)`/, 1]
     expect(session_icon).not_to be_nil
     expect(project_icon).to eq(session_icon)
+  end
+
+  describe "archive all sessions" do
+    let(:i18n) { File.read(File.join(web_dir, "i18n.js")) }
+
+    it "sits right above Delete, behind the same divider the session menu uses" do
+      clear_at    = projects.index('addItem("projects.menu.deleteSessions"')
+      divider_at  = projects.index('divider.className = "project-actions-menu-divider"')
+      archive_at  = projects.index('addItem("projects.menu.archiveSessions"')
+      delete_at   = projects.index('addItem("projects.menu.delete"')
+
+      expect([clear_at, divider_at, archive_at, delete_at]).to all(be_a(Integer))
+      expect(divider_at).to be > clear_at
+      expect(archive_at).to be > divider_at
+      expect(delete_at).to be > archive_at
+
+      expect(projects).to include("const iconArchive = `<svg")
+      expect(projects).to include("iconArchive, false, () => promptArchiveSessions")
+      expect(styles).to match(
+        /\.project-actions-menu-divider \{.*?height: 1px;.*?background: var\(--color-border-secondary\);/m
+      )
+    end
+
+    it "archives through the project-scoped endpoint, not one call per session" do
+      expect(projects).to include("`/api/projects/${id}/sessions/archive`")
+      expect(projects).to include('method: "POST" }')
+      expect(projects).not_to match(%r{\/api/sessions\/\$\{.*\}.{0,80}archived: true}m)
+    end
+
+    it "always asks for confirmation before archiving" do
+      confirm_at = projects.index("await Modal.confirm(\n      I18n.t(\"projects.archiveSessions.confirm\"")
+      fetch_at   = projects.index("`/api/projects/${id}/sessions/archive`")
+
+      expect(confirm_at).not_to be_nil, "archive must open the confirm dialog"
+      expect(fetch_at).to be > confirm_at, "the POST must come after the confirmation"
+
+      # The dialog must not be gated on the sidebar copy of the session list:
+      # cron/ext sessions live in folded groups and would make it look empty.
+      body = projects[confirm_at...fetch_at]
+      expect(body).to include("if (!confirmed) return;")
+      expect(body).not_to include("ids.length === 0")
+    end
+
+    it "confirms with the project name" do
+      expect(projects).to include("projects.archiveSessions.confirm")
+      expect(projects).to include("{ name: project.name }")
+      expect(projects).to include('Modal.toast(I18n.t("projects.archiveSessions.empty"), "info")')
+    end
+
+    it "reports the server-side archive count" do
+      expect(projects).to include("if (!data.archived)")
+      expect(projects).to include('I18n.t("projects.archiveSessions.done", { count: data.archived })')
+    end
+
+    it "localizes the label, the confirmation and the result in both languages" do
+      expect(i18n).to include('"projects.menu.archiveSessions": "Archive Sessions"')
+      expect(i18n).to include('"projects.menu.archiveSessions": "归档会话"')
+      expect(i18n).to include('Archive all sessions in project \\"{{name}}\\"?')
+      expect(i18n).to include('"projects.archiveSessions.done": "已归档 {{count}} 个会话"')
+      expect(i18n).to include('"projects.archiveSessions.fail": "Archive failed: {{msg}}"')
+    end
   end
 end

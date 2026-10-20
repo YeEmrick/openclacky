@@ -17099,20 +17099,14 @@ body.setup-mode {
 .project-actions-menu-item:hover .project-actions-menu-icon {
   color: var(--color-text-primary);
 }
-.project-actions-menu-item.danger {
-  margin-top: 0.25rem;
-  position: relative;
-}
 .project-actions-menu-item.danger .project-actions-menu-icon {
   color: var(--color-text-secondary);
 }
-.project-actions-menu-item.danger::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: -0.1875rem;
+/* The last group (archive + delete) is set off by an explicit divider element,
+   so the danger styling itself draws no line. */
+.project-actions-menu-divider {
   height: 1px;
+  margin: 0.3125rem 0;
   background: var(--color-border-secondary);
 }
 .project-actions-menu-item.danger:hover {
