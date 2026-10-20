@@ -643,7 +643,6 @@ module Clacky
           "glm-5.2",
           "kimi-k3",
           "glm-5.1",
-          "minimax-m2.7",
           "minimax-m3",
           "kimi-k2.7-code",
           "kimi-k2.6",
@@ -665,7 +664,6 @@ module Clacky
         "lite_models" => {
           "glm-5.2"                => "glm-5.1",
           "kimi-k3"                => "kimi-k2.6",
-          "minimax-m3"             => "minimax-m2.7",
           "kimi-k2.7-code"         => "kimi-k2.6",
           "deepseek-v4-pro"        => "deepseek-v4-flash",
           "gemini-3-flash-preview" => "deepseek-v4-flash"

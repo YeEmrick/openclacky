@@ -221,6 +221,8 @@ RSpec.describe Clacky::Providers do
       it "returns nil lite for models without lite pairing" do
         expect(described_class.lite_model("ollama", "glm-5.1")).to be_nil
         expect(described_class.lite_model("ollama", "minimax-m2.7")).to be_nil
+        expect(described_class.lite_model("ollama", "minimax-m3")).to be_nil
+        expect(described_class.models("ollama")).not_to include("minimax-m2.7")
       end
 
       it "enforces vision capabilities correctly" do

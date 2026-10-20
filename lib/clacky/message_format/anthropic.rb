@@ -122,6 +122,22 @@ module Clacky
             end
           body[:thinking] = { type: "enabled" }
           body[:output_config] = { effort: k3_effort } if k3_effort
+        elsif model.to_s.match?(/\Aminimax-m3[.]1-flash\z/i)
+          # Flash always thinks; use its lightest supported effort for "off".
+          effort = if %w[off nothink disabled none].include?(reasoning_effort.to_s)
+                     "low"
+                   else
+                     normalized_effort(reasoning_effort)
+                   end
+          body[:output_config] = { effort: effort } if effort
+        elsif model.to_s.match?(/\Aminimax-m3\z/i)
+          # M3 defaults to disabled on this transport and ignores effort.
+          effort_str = reasoning_effort.to_s
+          if %w[off nothink disabled none].include?(effort_str)
+            body[:thinking] = { type: "disabled" }
+          elsif !effort_str.empty?
+            body[:thinking] = { type: "adaptive" }
+          end
         elsif (effort = normalized_effort(reasoning_effort))
           body[:thinking] = { type: "adaptive" }
           body[:output_config] = { effort: effort }

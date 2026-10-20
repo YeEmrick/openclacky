@@ -317,9 +317,9 @@ module Clacky
         elsif model.to_s.match?(/^minimax-m3[.]1-flash$/i)
           # M3.1-Flash always thinks and rejects thinking disabled / effort none,
           # so "off" maps to the lightest effort "low".
-          if %w[off nothink disabled].include?(effort_str)
+          if %w[off nothink disabled none].include?(effort_str)
             body[:reasoning_effort] = "low"
-          elsif !effort_str.empty?
+          elsif %w[low medium high xhigh max].include?(effort_str)
             body[:reasoning_effort] = effort_str
           end
         elsif model.to_s.match?(/^minimax-m3$/i)
@@ -334,7 +334,7 @@ module Clacky
           #     decides per request); we let the server pick the intensity.
           # M2.7 cannot disable thinking and ignores this field, so sending
           # it is harmless for the rest of the MiniMax lineup.
-          if %w[off nothink disabled].include?(effort_str)
+          if %w[off nothink disabled none].include?(effort_str)
             body[:thinking] = { type: "disabled" }
           elsif !effort_str.empty?
             body[:thinking] = { type: "adaptive" }
