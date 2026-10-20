@@ -989,19 +989,16 @@ module Clacky
         cache:  { write: 0.15, read: 0.015 }
       },
 
-      # M3 (released 2026-06-01) is MiniMax's multimodal flagship (image +
-      # video input, 1,000,000-token context window). Official pricing is
-      # tiered by context length (≤512K vs 512K–1M); per the project's
-      # "displayed ≤ actual" convention we record only the lowest (≤512K)
-      # tier as a flat rate — the global TIERED_PRICING_THRESHOLD is 200K,
-      # so applying the 512K–1M rate to the 200K–512K band would over-charge.
-      # Listed at original (non-promotional) prices: input $0.60, output
-      # $2.40, cache read $0.12 per 1M tokens; cache write is billed at the
-      # input miss rate.
+      # M3 — tiered at 512K input tokens; cache write billed at the input rate.
+      # Source: https://platform.minimax.io/docs/guides/pricing-paygo (Standard).
       "minimax-m3" => {
-        input:  { default: 0.60, over_200k: 0.60 },
-        output: { default: 2.40, over_200k: 2.40 },
-        cache:  { write: 0.60, read: 0.12 }
+        input:  { default: 0.30, over_512k: 0.60 },
+        output: { default: 1.20, over_512k: 2.40 },
+        cache:  {
+          write_default: 0.30, write_over_512k: 0.60,
+          read_default:  0.06, read_over_512k:  0.12
+        },
+        tier_threshold: 512_000
       },
 
       # M2.7 — text-only model (204,800-token context window). Listed at
