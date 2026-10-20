@@ -129,7 +129,7 @@ module Clacky
         response = bedrock_connection.post(bedrock_endpoint(api_model)) { |r| r.body = body.to_json }
         parse_simple_bedrock_response(response)
       elsif anthropic_format?
-        body     = MessageFormat::Anthropic.build_request_body(messages, api_model, [], max_tokens, false)
+        body     = MessageFormat::Anthropic.build_request_body(messages, api_model, [], max_tokens, false, reasoning_effort: reasoning_effort)
         response = anthropic_connection.post(anthropic_messages_path) { |r| r.body = body.to_json }
         parse_simple_anthropic_response(response)
       elsif responses_format?
