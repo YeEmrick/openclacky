@@ -970,6 +970,7 @@ module Clacky
       # rest of this file; normalize_model_name() lowercases incoming model
       # names before lookup.
 
+      # M2.x is retired on MiniMax's own API but still served via OpenRouter/Ollama — keep these rows.
       # M2.5 — high-throughput text model, optimised for coding and agent tasks
       # (40,960-token context window). Listed at Pay-as-You-Go prices.
       # Source: https://www.minimax.io/models/text (MiniMax-M2.5 product page).
@@ -977,6 +978,15 @@ module Clacky
         input:  { default: 0.30, over_200k: 0.30 },
         output: { default: 1.20, over_200k: 1.20 },
         cache:  { write: 0.30, read: 0.03 }
+      },
+
+      # M3.1-Flash (released 2026-10-19) — flat pricing, 1M context. Source:
+      # https://www.minimax.io/blog/minimax-m31f. No cache-write price is
+      # published; billed at the input rate per this table's convention.
+      "minimax-m3.1-flash" => {
+        input:  { default: 0.15, over_200k: 0.15 },
+        output: { default: 0.60, over_200k: 0.60 },
+        cache:  { write: 0.15, read: 0.015 }
       },
 
       # M3 (released 2026-06-01) is MiniMax's multimodal flagship (image +
@@ -1378,6 +1388,8 @@ module Clacky
           "glm-4.7"
         # MiniMax — model ids in providers.rb use capitalised "MiniMax-M*"
         # but we match case-insensitively and map to the lowercased table key.
+        when /^minimax-m3[.]1-flash$/i
+          "minimax-m3.1-flash"
         when /^minimax-m3$/i
           "minimax-m3"
         when /^minimax-m2\.7$/i
