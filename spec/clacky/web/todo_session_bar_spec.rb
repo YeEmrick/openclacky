@@ -5,6 +5,7 @@ RSpec.describe "Session-bar task list" do
   let(:html) { File.read(File.join(web_dir, "index.html")) }
   let(:sessions) { File.read(File.join(web_dir, "sessions.js")) }
   let(:styles) { File.read(File.join(web_dir, "app.css")) }
+  let(:i18n) { File.read(File.join(web_dir, "i18n.js")) }
 
   it "keeps a compact task-list anchor in the session bar" do
     expect(html).to include('id="todo-trigger"')
@@ -12,6 +13,36 @@ RSpec.describe "Session-bar task list" do
     expect(html).not_to include('id="sib-tasks"')
     expect(styles).to match(/\.todo-trigger \{.*?width: 1\.375rem;/m)
     expect(styles).to match(/\.todo-panel\.has-todos \.todo-trigger-detail \{/)
+  end
+
+  it "runs reasoning, permission mode, task list, then latency" do
+    expect(html).to match(
+      /id="sib-reasoning-wrap".*?id="sib-mode-wrap".*?sib-sep-after-mode.*?id="todo-panel".*?sib-sep-after-todo.*?id="sib-signal-wrap"/m
+    )
+    expect(html).not_to include("sib-sep-after-reasoning")
+  end
+
+  it "draws the permission mode as the same pill the reasoning picker uses" do
+    expect(html).to include('id="sib-mode" class="sib-mode-clickable"')
+    expect(html).to include('<span class="sib-pill-label" data-i18n="sib.mode.pill">')
+    expect(html).to include('id="sib-mode-text"')
+    expect(styles).to match(/#session-info-bar \.sib-mode-clickable \{.*?border-radius: 999px;/m)
+    expect(styles).to match(/#sib-model-wrap,\n#sib-reasoning-wrap,\n#sib-mode-wrap \{/)
+    expect(i18n).to include('"sib.mode.pill":  "权限"')
+    expect(i18n).to include('"sib.mode.pill":  "Mode"')
+  end
+
+  it "keeps the pill label when the mode changes" do
+    expect(sessions).to include("const sibModeText = $(\"sib-mode-text\");")
+    expect(sessions).to include("sibModeText.textContent = I18n.t(`sib.mode.${mode}`);")
+    expect(sessions).not_to include('sibMode.textContent = I18n.t(`sib.mode.${mode}`) + " ▾"')
+  end
+
+  it "flips the permission caret while its menu is open" do
+    expect(sessions).to include('modeButton.classList.toggle("is-open", open);')
+    expect(sessions).to include('modeButton.classList.remove("is-open");')
+    expect(styles).to match(/\.sib-mode-clickable\.is-open \.sib-caret \{\n  transform: rotate\(180deg\);/)
+    expect(styles).to match(/\.sib-mode-clickable \.sib-caret \{\n  pointer-events: none;/)
   end
 
   it "expands for any non-empty list and disables the empty state" do

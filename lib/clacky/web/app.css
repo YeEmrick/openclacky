@@ -5601,11 +5601,6 @@ body {
   opacity: 0.85;
 }
 
-/* Show all fields by default, not just on hover */
-.sib-detail {
-  display: contents;
-}
-
 #sib-id {
   opacity: 1;
   font-size: 0.625rem;
@@ -5755,14 +5750,12 @@ body {
 
 #sib-mode {
   flex-shrink: 0;
-  width: auto;
-  color: var(--color-text-secondary);
-  background: var(--color-bg-primary);
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  padding: 2px 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3125rem;
   font: inherit;
   cursor: pointer;
+  transition: all 0.15s ease;
 }
 #sib-mode:disabled { opacity: 0.5; cursor: default; }
 #sib-mode-menu { position: fixed; width: 240px; box-sizing: border-box; white-space: normal; padding: 4px; z-index: 1000; }
@@ -5773,9 +5766,9 @@ body {
 #sib-model { opacity: 1;    flex-shrink: 0; }   /* tier 1 — the model is primary */
 #sib-cost  { opacity: 0.45; flex-shrink: 0; }   /* tier 3 */
 
-/* ── Latency signal (right after model name) ──────────────────────────────
-   A compact 4-bar signal + TTFT value. Placed adjacent to #sib-model so the
-   user's mental mapping "this model is fast/slow" is immediate. Variant
+/* ── Latency signal (right of the task list) ──────────────────────────────
+   A compact 4-bar signal + TTFT value. A trailing metric, so it sits after
+   the pickers and the task list, just before the cost. Variant
    classes (-ok/-warn/-bad) are applied by Sessions._renderSignal based on
    TTFT thresholds; colours intentionally use CSS vars so the same palette
    works in both light and dark themes. */
@@ -5885,10 +5878,11 @@ body {
 #sib-model.sib-model-no-subs .sib-caret {
   display: none;
 }
-/* The dir/reasoning carets are hints only: clicking them must reach the row,
-   and the row hover already provides the feedback. */
+/* The dir/reasoning/mode carets are hints only: clicking them must reach the
+   row, and the row hover already provides the feedback. */
 #sib-dir .sib-caret,
-.sib-reasoning-clickable .sib-caret {
+.sib-reasoning-clickable .sib-caret,
+.sib-mode-clickable .sib-caret {
   pointer-events: none;
 }
 .sib-model-clickable:hover .sib-caret,
@@ -5896,7 +5890,9 @@ body {
 #sib-dir:hover .sib-caret,
 #sib-dir.is-open .sib-caret,
 .sib-reasoning-clickable:hover .sib-caret,
-.sib-reasoning-clickable.is-open .sib-caret {
+.sib-reasoning-clickable.is-open .sib-caret,
+.sib-mode-clickable:hover .sib-caret,
+.sib-mode-clickable.is-open .sib-caret {
   opacity: 1;
 }
 /* Hovering the model caret needs feedback of its own: the row hover already
@@ -5908,7 +5904,8 @@ body {
 }
 .sib-model-clickable.is-open .sib-caret,
 #sib-dir.is-open .sib-caret,
-.sib-reasoning-clickable.is-open .sib-caret {
+.sib-reasoning-clickable.is-open .sib-caret,
+.sib-mode-clickable.is-open .sib-caret {
   transform: rotate(180deg);
 }
 .sib-model-disabled .sib-caret {
@@ -5943,7 +5940,8 @@ body {
 /* Pickers render as outlined pills so they read as controls, not status text. */
 #session-info-bar #sib-dir,
 #session-info-bar .sib-model-clickable,
-#session-info-bar .sib-reasoning-clickable {
+#session-info-bar .sib-reasoning-clickable,
+#session-info-bar .sib-mode-clickable {
   height: 1.375rem;
   padding: 0 0.4375rem 0 0.5rem;
   border: 1px solid var(--color-border-primary);
@@ -5955,9 +5953,11 @@ body {
 #session-info-bar #sib-dir:hover,
 #session-info-bar .sib-model-clickable:hover,
 #session-info-bar .sib-reasoning-clickable:hover,
+#session-info-bar .sib-mode-clickable:hover,
 #session-info-bar #sib-dir.is-open,
 #session-info-bar .sib-model-clickable.is-open,
-#session-info-bar .sib-reasoning-clickable.is-open {
+#session-info-bar .sib-reasoning-clickable.is-open,
+#session-info-bar .sib-mode-clickable.is-open {
   background: var(--color-bg-secondary);
   border-color: var(--color-text-tertiary);
   color: var(--color-text-primary);
@@ -5974,7 +5974,8 @@ body {
   display: none;
 }
 #sib-model-wrap,
-#sib-reasoning-wrap {
+#sib-reasoning-wrap,
+#sib-mode-wrap {
   margin-left: 0.1875rem;
 }
 .sib-reasoning-dropdown {
@@ -16334,17 +16335,12 @@ body.setup-mode {
     white-space: nowrap;
     flex-wrap: nowrap;
   }
-  /* Always show detail fields on mobile (no hover) */
-  #session-info-bar .sib-detail {
-    display: contents;
-  }
   /* Hide less-important fields and their separators (element + sib-sep-after-element pattern) */
   #sib-id,
   .sib-sep-after-id,
   #sib-dir,
   .sib-sep-after-dir,
   #sib-reasoning-wrap,
-  .sib-sep-after-reasoning,
   #sib-signal-wrap,
   .sib-sep-after-signal {
     display: none;
