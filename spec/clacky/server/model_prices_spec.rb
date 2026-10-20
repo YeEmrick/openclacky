@@ -137,10 +137,20 @@ RSpec.describe Clacky::Server::ModelPrices do
         )
       end
 
-      it "omits the discount flag for models outside the promotion" do
+      it "applies the Bedrock markup instead of a discount" do
         result = described_class.build("abs-gpt-6.1-sol")
 
+        # $2 in / $10 out at list, billed at 1.2x by the Bedrock GPT lane.
+        expect(result[:prices]["abs-gpt-6.1-sol"]).to eq(
+          in: 2.4, out: 12.0, ratio: (2.4 + 12.0) / base_total
+        )
         expect(result[:prices]["abs-gpt-6.1-sol"]).not_to have_key(:discount)
+      end
+
+      it "leaves the BYOK gpt id at list price" do
+        result = described_class.build("gpt-6.1-sol")
+
+        expect(result[:prices]["gpt-6.1-sol"]).to eq(in: 2.0, out: 10.0, ratio: 1.0)
       end
     end
 

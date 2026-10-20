@@ -1136,6 +1136,16 @@ module Clacky
       { match: /\Aor-(gemini|veo)-/, rate: 0.8,  reason: "promo" }    # Vertex Gemini/Veo launch promo - 20% off
     ].freeze
 
+    # Lanes sold above the rates in PRICING_TABLE. Bedrock GPT is the only
+    # one: it bills at OpenAI list (Global CRIS carries no premium), so its
+    # 20% is a pricing decision on top of the standard 5% processing fee -
+    # mirrored by bedrockOpenAIMarkup in llm_proxy. BYOK callers hit Bedrock
+    # under their own account and keep the list price, so only the "abs-"
+    # alias matches.
+    MARKUP_RULES = [
+      { match: /\Aabs-gpt-/, rate: 1.2 }
+    ].freeze
+
     class << self
       # Matching promotion for a model alias, or nil when none applies.
       #   rate   - multiplier applied to the list price
@@ -1154,6 +1164,20 @@ module Clacky
       def discount_rate(model)
         info = discount_info(model)
         info ? info[:rate] : 1.0
+      end
+
+      # Multiplier applied to the list price by the lane serving this alias.
+      def markup_rate(model)
+        name = model.to_s.downcase
+        return 1.0 if name.empty?
+
+        rule = MARKUP_RULES.find { |r| r[:match].match?(name) }
+        rule ? rule[:rate] : 1.0
+      end
+
+      # What a token actually costs us: promotion and lane markup combined.
+      def effective_rate(model)
+        discount_rate(model) * markup_rate(model)
       end
 
       # Calculate cost for the given model and usage
@@ -1220,7 +1244,7 @@ module Clacky
         # Promotions are keyed on the requested alias, so apply them last: the
         # table above holds list prices shared with BYOK callers.
         {
-          cost: (input_cost + output_cost + cache_cost) * discount_rate(model),
+          cost: (input_cost + output_cost + cache_cost) * effective_rate(model),
           source: source
         }
       end

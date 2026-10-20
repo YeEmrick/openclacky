@@ -692,7 +692,7 @@ RSpec.describe Clacky::ModelPricing do
         # Cache read:      50_000 /1M * $0.10         = $0.005
         # Output:         100_000 /1M * $10.00        = $1.00
         # Total: $1.205
-        result = described_class.calculate_cost(model: "abs-gpt-6.1-sol", usage: usage)
+        result = described_class.calculate_cost(model: "gpt-6.1-sol", usage: usage)
         expect(result[:cost]).to be_within(0.0001).of(1.205)
         expect(result[:source]).to eq(:price)
       end
@@ -706,6 +706,23 @@ RSpec.describe Clacky::ModelPricing do
         result = described_class.calculate_cost(model: "global.openai.gpt-6.1-sol", usage: usage)
         expect(result[:cost]).to be_within(0.0001).of(2.70)
         expect(result[:source]).to eq(:price)
+      end
+
+      it "bills the platform alias 1.2x list through the Bedrock lane" do
+        usage = { prompt_tokens: 100_000, completion_tokens: 100_000 }
+
+        # $0.20 in + $1.00 out at list, marked up by the gateway's Bedrock GPT lane.
+        result = described_class.calculate_cost(model: "abs-gpt-6.1-sol", usage: usage)
+        expect(result[:cost]).to be_within(0.0001).of(1.44)
+      end
+
+      it "matches the abs-gpt family only" do
+        expect(described_class.markup_rate("abs-gpt-6.1-sol")).to eq(1.2)
+        expect(described_class.markup_rate("abs-gpt-6.1-luna")).to eq(1.2)
+        expect(described_class.markup_rate("gpt-6.1-sol")).to eq(1.0)
+        expect(described_class.markup_rate("global.openai.gpt-6.1-sol")).to eq(1.0)
+        expect(described_class.markup_rate("abs-claude-sonnet-5")).to eq(1.0)
+        expect(described_class.markup_rate(nil)).to eq(1.0)
       end
     end
 
