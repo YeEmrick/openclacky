@@ -17100,13 +17100,11 @@ body.setup-mode {
   color: var(--color-text-primary);
 }
 .project-actions-menu-item.danger {
-  color: var(--color-error);
   margin-top: 0.25rem;
   position: relative;
 }
-.project-actions-menu-item.danger .project-actions-menu-icon,
-.project-actions-menu-item.danger:hover .project-actions-menu-icon {
-  color: var(--color-error);
+.project-actions-menu-item.danger .project-actions-menu-icon {
+  color: var(--color-text-secondary);
 }
 .project-actions-menu-item.danger::before {
   content: "";
@@ -17119,6 +17117,10 @@ body.setup-mode {
 }
 .project-actions-menu-item.danger:hover {
   background: var(--color-error-bg);
+  color: var(--color-error);
+}
+.project-actions-menu-item.danger:hover .project-actions-menu-icon {
+  color: var(--color-error);
 }
 
 /* ── Organize menu (view-mode toggle) ──────────────────────────────────────── */

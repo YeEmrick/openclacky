@@ -3,6 +3,7 @@
 RSpec.describe "Project actions menu UI" do
   let(:web_dir) { File.expand_path("../../../lib/clacky/web", __dir__) }
   let(:projects) { File.read(File.join(web_dir, "projects.js")) }
+  let(:sessions) { File.read(File.join(web_dir, "sessions.js")) }
   let(:styles) { File.read(File.join(web_dir, "app.css")) }
 
   it "embeds Lucide Pencil, Brush, and Trash icons for the three actions" do
@@ -47,8 +48,28 @@ RSpec.describe "Project actions menu UI" do
     expect(styles).not_to include("project-edit.svg")
     expect(styles).not_to include("project-trash.svg")
     expect(styles).to include(".project-actions-menu-icon svg")
-    expect(styles).to match(
-      /\.project-actions-menu-item\.danger .*?color: var\(--color-error\);/m
-    )
+  end
+
+  it "keeps the delete entry neutral until hovered, like the session menu" do
+    danger = styles[/^\.project-actions-menu-item\.danger \{.*?\n\}/m]
+    expect(danger).not_to be_nil
+    expect(danger).not_to include("--color-error")
+
+    icon = styles[/^\.project-actions-menu-item\.danger \.project-actions-menu-icon \{.*?\n\}/m]
+    expect(icon).to include("var(--color-text-secondary)")
+
+    hover = styles[/^\.project-actions-menu-item\.danger:hover \{.*?\n\}/m]
+    expect(hover).to include("var(--color-error-bg)")
+    expect(hover).to include("color: var(--color-error)")
+
+    hover_icon = styles[/^\.project-actions-menu-item\.danger:hover \.project-actions-menu-icon \{.*?\n\}/m]
+    expect(hover_icon).to include("var(--color-error)")
+  end
+
+  it "reuses the session menu trash glyph for deletion" do
+    session_icon = sessions[/const iconTrash = `([^`]+)`/, 1]
+    project_icon = projects[/const iconTrash = `([^`]+)`/, 1]
+    expect(session_icon).not_to be_nil
+    expect(project_icon).to eq(session_icon)
   end
 end
