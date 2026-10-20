@@ -12254,7 +12254,20 @@ body.setup-mode {
 .badge-active       { color: var(--color-success); }
 .badge-expired      { color: var(--color-error); }
 .badge-expiring     { color: var(--color-warning); }
-.badge-unreachable  { color: var(--color-text-secondary); }
+.badge-unreachable  { color: var(--color-warning); }
+.brand-status-state {
+  display: flex;
+  align-items: baseline;
+  gap: 0.375rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.brand-status-hint {
+  font-size: 0.75rem;
+  line-height: 1.5;
+  font-weight: 400;
+  color: var(--color-warning);
+}
 .badge-inactive     { color: var(--color-text-secondary); }
 
 /* Support QR code */
