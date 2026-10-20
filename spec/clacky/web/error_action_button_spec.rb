@@ -18,8 +18,10 @@ RSpec.describe "Web error card action button" do
 
   it "tells the user what to check when retries are exhausted" do
     messages = Clacky::I18n.translations("llm.error.network_failed", retries: 10)
-    expect(messages["zh"]).to include("检查账户余额或 API Key")
-    expect(messages["en"]).to match(/check your account balance or API Key/i)
+    expect(messages["zh"]).to include("暂时切换其他模型重试")
+    expect(messages["zh"]).to include("检查账户余额")
+    expect(messages["en"]).to match(/switch to another model and retry/i)
+    expect(messages["en"]).to match(/check your account balance/i)
     expect(messages["zh"]).to include("10")
     expect(messages["en"]).to include("10")
   end
