@@ -346,8 +346,9 @@ module Clacky
       end
 
       # Handle the `/think` slash command — pick the reasoning effort level
-      # for the current session. "off" normalizes to nil (provider default),
-      # matching the Web UI's reasoning_effort switcher semantics.
+      # for the current session. "off" is kept as an explicit choice so model
+      # adapters can resolve it per family (MiniMax Flash and GLM-5.3 turn it
+      # into their lightest effort instead of the provider's deepest default).
       private def handle_think_command(ui_controller, agent, session_manager = nil)
         choice = ui_controller.show_reasoning_effort_menu(agent.reasoning_effort)
         return if choice.nil?

@@ -235,6 +235,12 @@ module Clacky
         end
       end
 
+      # Values the sessionbar/config use to mean "no explicit level". They are
+      # model-specific on the wire (some families map them to their lightest
+      # effort, others to thinking disabled), so every branch below handles
+      # them explicitly — the generic fallback must never forward them.
+      OFF_EFFORT_VALUES = %w[off nothink disabled none].freeze
+
       # Apply model-specific reasoning / thinking parameters to the request body.
       #
       # Different model families expose extended reasoning through different API
@@ -259,7 +265,7 @@ module Clacky
           # error (Z.ai migration guide), so "off" maps to the lightest effort
           # "low". Effort accepts low/high/max only; server default is max.
           body[:thinking] = { type: "enabled" }
-          if %w[off nothink disabled].include?(effort_str)
+          if OFF_EFFORT_VALUES.include?(effort_str)
             body[:reasoning_effort] = "low"
           elsif !effort_str.empty?
             body[:reasoning_effort] =
@@ -275,7 +281,7 @@ module Clacky
           # ({type: "enabled"|"disabled"}) plus a restricted reasoning_effort
           # that only accepts "max" or "high". Other effort levels collapse
           # to "high". Send both fields so GLM activates thinking correctly.
-          if %w[off nothink disabled].include?(effort_str)
+          if OFF_EFFORT_VALUES.include?(effort_str)
             body[:thinking] = { type: "disabled" }
           elsif !effort_str.empty?
             glm_effort =
@@ -293,7 +299,7 @@ module Clacky
           # Thinking is always enabled and cannot be turned off; "off" maps
           # to the lowest intensity "low". Unsupported effort levels (medium,
           # xhigh) would be rejected or ignored by the server.
-          if %w[off nothink disabled].include?(effort_str)
+          if OFF_EFFORT_VALUES.include?(effort_str)
             body[:reasoning_effort] = "low"
           elsif !effort_str.empty?
             body[:reasoning_effort] =
@@ -309,7 +315,7 @@ module Clacky
           # thinking:{type:...} field rather than reasoning_effort. Map the
           # internal reasoning_effort value to thinking on/off so MiMo does
           # not receive an unsupported parameter.
-          if %w[off nothink disabled].include?(effort_str)
+          if OFF_EFFORT_VALUES.include?(effort_str)
             body[:thinking] = { type: "disabled" }
           elsif !effort_str.empty?
             body[:thinking] = { type: "enabled" }
@@ -317,7 +323,7 @@ module Clacky
         elsif model.to_s.match?(/^minimax-m3[.]1-flash$/i)
           # M3.1-Flash always thinks and rejects thinking disabled / effort none,
           # so "off" maps to the lightest effort "low".
-          if %w[off nothink disabled none].include?(effort_str)
+          if OFF_EFFORT_VALUES.include?(effort_str)
             body[:reasoning_effort] = "low"
           elsif %w[low medium high xhigh max].include?(effort_str)
             body[:reasoning_effort] = effort_str
@@ -334,20 +340,23 @@ module Clacky
           #     decides per request); we let the server pick the intensity.
           # M2.7 cannot disable thinking and ignores this field, so sending
           # it is harmless for the rest of the MiniMax lineup.
-          if %w[off nothink disabled none].include?(effort_str)
+          if OFF_EFFORT_VALUES.include?(effort_str)
             body[:thinking] = { type: "disabled" }
           elsif !effort_str.empty?
             body[:thinking] = { type: "adaptive" }
           end
         elsif model.to_s.match?(/deepseek/i)
           # DeepSeek V4 reasoning_effort only accepts low/high/max.
-          # xhigh is not recognized — map it to max.
-          effort = case effort_str
-                   when "xhigh" then "max"
-                   else effort_str
-                   end
-          assign_effort(body, effort, responses_api)
-        elsif reasoning_effort && !effort_str.empty?
+          # xhigh is not recognized — map it to max. Off-like values are not
+          # valid either, so they keep the provider default untouched.
+          unless OFF_EFFORT_VALUES.include?(effort_str)
+            effort = case effort_str
+                     when "xhigh" then "max"
+                     else effort_str
+                     end
+            assign_effort(body, effort, responses_api)
+          end
+        elsif reasoning_effort && !effort_str.empty? && !OFF_EFFORT_VALUES.include?(effort_str)
           assign_effort(body, effort_str, responses_api)
         end
       end

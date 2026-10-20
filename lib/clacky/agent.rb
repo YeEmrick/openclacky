@@ -59,6 +59,13 @@ module Clacky
     attr_accessor :archived_at
 
     REASONING_EFFORTS = %w[low medium high xhigh max].freeze
+    # Sessionbar/config values meaning "no explicit level". They stay a string
+    # instead of collapsing to nil so format adapters can tell an explicit
+    # "default" apart from "user never chose": for models whose provider
+    # default is the deepest level (MiniMax M3.1-Flash, GLM-5.3) the adapters
+    # map this value to their lightest effort.
+    REASONING_DEFAULT = "off"
+    REASONING_DEFAULT_ALIASES = %w[off none disabled nothink].freeze
     MAX_VIDEO_UNDERSTANDING_BYTES = Utils::FileProcessor::MAX_FILE_BYTES
     MAX_VIDEO_BASE64_BYTES = 45 * 1024 * 1024
     MAX_VIDEO_DESCRIPTION_CHARS = 500
@@ -90,7 +97,8 @@ module Clacky
     private def normalize_reasoning_effort(value)
       return nil if value.nil?
       str = value.to_s.strip.downcase
-      return nil if str.empty? || str == "off" || str == "none"
+      return nil if str.empty?
+      return REASONING_DEFAULT if REASONING_DEFAULT_ALIASES.include?(str)
       return str if REASONING_EFFORTS.include?(str)
       nil
     end
@@ -129,7 +137,7 @@ module Clacky
       @task_cost_source = :estimated  # Track cost source for current task
       @previous_total_tokens = 0  # Track tokens from previous iteration for delta calculation
       @latest_latency = nil  # Most recent LLM call's latency metrics (see Client#send_messages_with_tools)
-      @reasoning_effort = nil  # Per-session reasoning effort override; nil = provider default
+      @reasoning_effort = REASONING_DEFAULT  # Sessionbar shows "Default" for a fresh session; adapters resolve it per model
       @ui = ui  # UIController for direct UI interaction
       @debug_logs = []  # Debug logs for troubleshooting
       @input_mutex = Mutex.new

@@ -19,6 +19,10 @@ module Clacky
     module Anthropic
       module_function
 
+      # Same "no explicit level" set the OpenAI adapter uses: the sessionbar and
+      # config paths only ever emit these values or a concrete low..max level.
+      OFF_EFFORT_VALUES = %w[off nothink disabled none].freeze
+
       # Normalise a /v1/messages usage block to the codebase's canonical
       # (OpenAI-style) prompt_tokens: total input including cache_read but
       # excluding cache_creation.
@@ -124,7 +128,7 @@ module Clacky
           body[:output_config] = { effort: k3_effort } if k3_effort
         elsif model.to_s.match?(/\Aminimax-m3[.]1-flash\z/i)
           # Flash always thinks; use its lightest supported effort for "off".
-          effort = if %w[off nothink disabled none].include?(reasoning_effort.to_s)
+          effort = if OFF_EFFORT_VALUES.include?(reasoning_effort.to_s)
                      "low"
                    else
                      normalized_effort(reasoning_effort)
@@ -133,7 +137,7 @@ module Clacky
         elsif model.to_s.match?(/\Aminimax-m3\z/i)
           # M3 defaults to disabled on this transport and ignores effort.
           effort_str = reasoning_effort.to_s
-          if %w[off nothink disabled none].include?(effort_str)
+          if OFF_EFFORT_VALUES.include?(effort_str)
             body[:thinking] = { type: "disabled" }
           elsif !effort_str.empty?
             body[:thinking] = { type: "adaptive" }
