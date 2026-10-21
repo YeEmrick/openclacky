@@ -2,8 +2,41 @@
 
 require "tmpdir"
 require "cgi"
+require "open3"
+require "base64"
+require "chunky_png"
 
 RSpec.describe Clacky::Utils::FileProcessor do
+  describe ".quantize_png_base64" do
+    let(:b64) { Base64.strict_encode64(ChunkyPNG::Image.new(2, 2).to_blob) }
+
+    it "retains invalid input when decoding fails" do
+      expect(described_class.quantize_png_base64("invalid")).to eq("invalid")
+    end
+
+    it "preserves colors and transparency when the image already fits a palette" do
+      image = ChunkyPNG::Image.new(3, 1)
+      image.pixels.replace([0xff000080, 0x00ff00ff, 0x00000000])
+      output = described_class.quantize_png_base64(Base64.strict_encode64(image.to_blob))
+      expect(ChunkyPNG::Image.from_blob(Base64.strict_decode64(output)).pixels).to eq(image.pixels)
+    end
+
+    it "produces a smaller palette PNG without external commands" do
+      expect(Open3).not_to receive(:capture3)
+      image = ChunkyPNG::Image.new(800, 100)
+      random = Random.new(42)
+      image.pixels.map! { ChunkyPNG::Color.rgb(random.rand(256), random.rand(256), random.rand(256)) }
+      input = Base64.strict_encode64(image.to_blob)
+      output = described_class.quantize_png_base64(input)
+      blob = Base64.strict_decode64(output)
+      decoded = ChunkyPNG::Image.from_blob(blob)
+      expect([decoded.width, decoded.height]).to eq([800, 100])
+      expect(blob.getbyte(25)).to eq(3) # PNG indexed-color IHDR
+      expect(decoded.pixels.uniq.size).to be <= 256
+      expect(output.bytesize).to be < input.bytesize
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # .save — store only, no parsing
   # ---------------------------------------------------------------------------

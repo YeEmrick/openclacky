@@ -226,6 +226,56 @@ module Clacky
       MIME_TYPES[File.extname(path).downcase] || "application/octet-stream"
     end
 
+    # Quantize with a frequency-weighted median-cut palette using only chunky_png.
+    # Keep the input on failure so the caller retains its existing size handling.
+    def self.quantize_png_base64(b64)
+      require "base64"
+      require "chunky_png"
+
+      image = ChunkyPNG::Image.from_blob(Base64.strict_decode64(b64))
+      counts = image.pixels.tally
+      if counts.size > 256
+        # Cache each box's widest RGBA channel; split until at most 256 remain.
+        make_box = lambda do |colors|
+          ranges = [24, 16, 8, 0].map do |shift|
+            values = colors.map { |color| (color >> shift) & 255 }
+            values.max - values.min
+          end
+          channel = ranges.each_index.max_by { |i| ranges[i] }
+          [colors, [24, 16, 8, 0][channel], ranges[channel]]
+        end
+        boxes = [make_box.call(counts.keys)]
+        while boxes.size < 256
+          index = boxes.each_index.max_by { |i| boxes[i][2] }
+          colors, shift, range = boxes.delete_at(index)
+          break if range.zero?
+
+          colors.sort_by! { |color| (color >> shift) & 255 }
+          halfway = colors.sum { |color| counts[color] } / 2.0
+          total = 0
+          split = colors.index { |color| (total += counts[color]) >= halfway } + 1
+          split = [split, colors.size - 1].min
+          boxes << make_box.call(colors.take(split))
+          boxes << make_box.call(colors.drop(split))
+        end
+
+        mapping = {}
+        boxes.each do |colors, _shift, _range|
+          weight = colors.sum { |color| counts[color] }
+          channels = [24, 16, 8, 0].map do |shift|
+            (colors.sum { |color| ((color >> shift) & 255) * counts[color] }.to_f / weight).round
+          end
+          representative = ChunkyPNG::Color.rgba(*channels)
+          colors.each { |color| mapping[color] = representative }
+        end
+        image.pixels.map! { |color| mapping.fetch(color) }
+      end
+      Base64.strict_encode64(image.to_blob(color_mode: ChunkyPNG::COLOR_INDEXED))
+    rescue StandardError => e
+      Clacky::Logger.debug("image_quantization_skipped", format: "png", reason: e.message)
+      b64
+    end
+
     # Downscale a base64-encoded image so its width is at most max_width pixels.
     #
     # Strategy:
