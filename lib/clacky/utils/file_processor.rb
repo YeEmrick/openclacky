@@ -233,7 +233,8 @@ module Clacky
       require "chunky_png"
 
       image = ChunkyPNG::Image.from_blob(Base64.strict_decode64(b64))
-      counts = image.pixels.tally
+      counts = Hash.new(0)
+      image.pixels.each { |color| counts[color] += 1 }
       if counts.size > 256
         # Cache each box's widest RGBA channel; split until at most 256 remain.
         make_box = lambda do |colors|
